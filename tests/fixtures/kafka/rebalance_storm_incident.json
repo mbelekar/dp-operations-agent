@@ -1,0 +1,13 @@
+{
+  "consumer_group_state_history": {
+    "billing-svc": [
+      {"ts": "2026-09-20T14:00:00Z", "state": "Stable"},
+      {"ts": "2026-09-20T14:01:00Z", "state": "PreparingRebalance"},
+      {"ts": "2026-09-20T14:01:05Z", "state": "CompletingRebalance"},
+      {"ts": "2026-09-20T14:02:00Z", "state": "PreparingRebalance"},
+      {"ts": "2026-09-20T14:02:05Z", "state": "CompletingRebalance"},
+      {"ts": "2026-09-20T14:03:00Z", "state": "PreparingRebalance"},
+      {"ts": "2026-09-20T14:03:05Z", "state": "CompletingRebalance"}
+    ]
+  }
+}

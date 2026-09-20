@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Runs the agent CLI. Pass args through, e.g. `./auto/run diagnose --fixture ... --alert-text ...`.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+source .venv/bin/activate
+dp-ops-agent "$@"

@@ -1,0 +1,8 @@
+{
+  "schema_registry_subject": {
+    "orders-value": {
+      "is_compatible": false,
+      "messages": ["Incompatible schema change: field 'total_amount' type changed from int to string"]
+    }
+  }
+}

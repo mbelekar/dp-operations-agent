@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 
 from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
 from dp_ops_agent.orchestrator.session import DiagnosisNotSubmittedError, run_diagnosis
+from dp_ops_agent.tools.flink.fixture_gateway import FixtureFlinkGateway
 from dp_ops_agent.tools.kafka.fixture_gateway import FixtureKafkaGateway
 from evals.grading import GradeResult, grade
 from evals.scenarios import SCENARIOS, EvalScenario
@@ -41,14 +42,16 @@ async def run_scenario(
 ) -> EvalRunResult:
     session_id = str(uuid4())
     audit = JsonlAuditSink(log_dir, session_id)
-    gateway = FixtureKafkaGateway(scenario.fixture_path)
+    kafka_gateway = FixtureKafkaGateway(scenario.kafka_fixture_path)
+    flink_gateway = FixtureFlinkGateway(scenario.flink_fixture_path)
 
     start = time.monotonic()
     try:
         result = await run_diagnosis(
             session_id=session_id,
             alert_text=scenario.alert_text,
-            gateway=gateway,
+            kafka_gateway=kafka_gateway,
+            flink_gateway=flink_gateway,
             audit=audit,
             model=model,
         )

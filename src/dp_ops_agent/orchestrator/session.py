@@ -11,6 +11,7 @@ from dp_ops_agent.audit.models import AuditEvent
 from dp_ops_agent.audit.sink import AuditSink
 from dp_ops_agent.evidence.schema import Diagnosis
 from dp_ops_agent.orchestrator.prompts import render_system_prompt
+from dp_ops_agent.tools.flink.gateway import FlinkMetricsGateway
 from dp_ops_agent.tools.kafka.gateway import KafkaMetricsGateway
 from dp_ops_agent.tools.registry import build_tools
 
@@ -29,7 +30,8 @@ class DiagnosisRunResult:
 async def run_diagnosis(
     session_id: str,
     alert_text: str,
-    gateway: KafkaMetricsGateway,
+    kafka_gateway: KafkaMetricsGateway,
+    flink_gateway: FlinkMetricsGateway,
     audit: AuditSink,
     model: str,
 ) -> DiagnosisRunResult:
@@ -47,12 +49,12 @@ async def run_diagnosis(
     )
 
     result_holder: dict[str, Diagnosis] = {}
-    tools = build_tools(gateway, audit, session_id, model, result_holder)
+    tools = build_tools(kafka_gateway, flink_gateway, audit, session_id, model, result_holder)
 
     agent = create_agent(
         model=ChatAnthropic(model=model),
         tools=tools,
-        system_prompt=render_system_prompt(phase=1),
+        system_prompt=render_system_prompt(phase=2),
     )
 
     try:
@@ -63,8 +65,8 @@ async def run_diagnosis(
                 # Correlates a LangSmith trace back to this session's audit
                 # log entries. Tracing itself is opt-in via the LANGSMITH_*
                 # env vars (see .env.example) and a no-op otherwise.
-                "run_name": f"diagnose-kafka-{session_id}",
-                "tags": ["phase-1", "kafka"],
+                "run_name": f"diagnose-{session_id}",
+                "tags": ["phase-2", "kafka", "flink"],
                 "metadata": {"session_id": session_id, "model": model},
             },
         )

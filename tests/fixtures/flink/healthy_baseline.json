@@ -1,0 +1,24 @@
+{
+  "checkpoint_history": {
+    "orders-processing-job": {
+      "counts": {"completed": 40, "failed": 0, "in_progress": 0, "restored": 0, "total": 40},
+      "history": [
+        {"id": 40, "status": "COMPLETED", "trigger_timestamp": 1700000000000, "end_to_end_duration": 850}
+      ]
+    }
+  },
+  "backpressure": {
+    "orders-processing-job": {
+      "source": {"status": "ok", "backpressure_level": "ok", "subtasks": [{"subtask": 0, "ratio": 0.02}]}
+    }
+  },
+  "watermark_lag": {
+    "orders-processing-job": {"source": {"0": 400.0}}
+  },
+  "task_manager_disk_metrics": {
+    "orders-processing-job": {"source": {"disk_used_ratio": 0.25}}
+  },
+  "job_exceptions": {
+    "orders-processing-job": []
+  }
+}

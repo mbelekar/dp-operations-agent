@@ -6,12 +6,13 @@ This README covers what's actually built and how it works.
 
 ## Status
 
-**Phase 1 of 5, implemented and verified end-to-end against a live model.** Kafka-only diagnostics for now, no lineage yet, no proposal or execution capability. See [Roadmap](#roadmap).
+**Phase 2a of 5, implemented and verified offline (unit + wiring tests); live-model verification pending.** Kafka and Flink diagnostics are both available; no lineage yet (that's Phase 2b), so investigations stay single-system for now, no proposal or execution capability. See [Roadmap](#roadmap).
 
 | Module | Status | Docs |
 | --- | --- | --- |
 | Kafka | ✅ Implemented | [`docs/kafka.md`](docs/kafka.md) |
-| Flink | 📋 Planned (Phase 2) | [`docs/flink.md`](docs/flink.md) |
+| Flink | ✅ Implemented | [`docs/flink.md`](docs/flink.md) |
+| Lineage | 📋 Planned (Phase 2b) | n/a |
 | dbt | 📋 Planned (Phase 3) | [`docs/dbt.md`](docs/dbt.md) |
 
 ## Why this exists
@@ -69,17 +70,18 @@ $ ./auto/test
 
 Worth being precise about what this suite checks: it's correctness testing, not agent evaluation. It verifies each tool computes the right severity for known fixture data, and that the grounding validator rejects an ungrounded or empty evidence chain. Even the live-model test only checks structural properties (a tool was called, the evidence chain is grounded), not whether the diagnosis is actually correct.
 
-A separate, minimum-viable eval suite covers that: `./auto/eval` runs the agent against four labeled incident scenarios against a live model, and grades each one deterministically, checking whether the correct root-cause signal type was actually cited in the evidence chain, not by judging the hypothesis text. It's real evaluation, not just correctness testing, but still a starting point: four scenarios, single-shot grading (no repeat-and-average to smooth over model non-determinism), and no LLM-as-judge yet.
+A separate, minimum-viable eval suite covers that: `./auto/eval` runs the agent against five labeled incident scenarios (four Kafka, one Flink) against a live model, and grades each one deterministically, checking whether the correct root-cause signal type was actually cited in the evidence chain, not by judging the hypothesis text. It's real evaluation, not just correctness testing, but still a starting point: five scenarios, single-shot grading (no repeat-and-average to smooth over model non-determinism), and no LLM-as-judge yet.
 
 #### Diagnose an incident:
 
 ```
 $ ./auto/run diagnose \
     --fixture tests/fixtures/kafka/urp_lag_spike_incident.json \
+    --flink-fixture tests/fixtures/flink/healthy_baseline.json \
     --alert-text "PagerDuty: consumer lag alert on billing-svc/orders"
 ```
 
-This runs entirely offline except for the model call. No live Kafka cluster is needed, since `--fixture` points at a canned incident snapshot (see [`docs/kafka.md`](docs/kafka.md#the-gateway-abstraction-one-seam-two-implementations) for how that works). Output is a JSON `Diagnosis` with a full evidence chain, plus a path to the append-only audit log for the session.
+This runs entirely offline except for the model call. No live Kafka or Flink cluster is needed, since `--fixture`/`--flink-fixture` point at canned incident snapshots (see [`docs/kafka.md`](docs/kafka.md#the-gateway-abstraction-one-seam-two-implementations) for how that works). Both fixtures are required, even for a single-system incident, Kafka and Flink tools are both always available in a session (see [`docs/flink.md`](docs/flink.md#why-kafka-and-flink-tools-are-both-always-available)). Output is a JSON `Diagnosis` with a full evidence chain, plus a path to the append-only audit log for the session.
 
 #### Help options:
 
@@ -88,12 +90,16 @@ To see all available options, run `./auto/run diagnose --help`.
 ## Project structure
 
 ```
+auto/                          # ./auto/{build,test,run,eval} entrypoint scripts
+evals/                         # minimum-viable eval suite (scenarios.py, grading.py, runner.py)
+tests/                         # unit + integration tests, plus fixture snapshots
 src/dp_ops_agent/
 ├── cli.py                    # `dp-ops-agent diagnose ...`
 ├── orchestrator/              # the LangGraph agent session + system prompt
 ├── tools/
-│   ├── registry.py            # assembles the tool list per phase
+│   ├── registry.py            # assembles the tool list every session gets
 │   ├── kafka/                 # implemented: gateway, live/fixture impls, tool definitions
+│   ├── flink/                 # implemented: same pattern as kafka/
 │   └── diagnosis_output/      # the submit_diagnosis tool (grounded structured output)
 ├── evidence/schema.py         # Signal, Diagnosis, Proposal, ApprovalRecord (typed contracts)
 ├── audit/                     # append-only JSONL audit log
@@ -103,7 +109,9 @@ src/dp_ops_agent/
 ## Roadmap
 
 1. **Single-system prototype**: Kafka diagnostics, no lineage. *(done, see [`docs/kafka.md`](docs/kafka.md))*
-2. **Lineage + Flink**: cross-system localization. *(planned, see [`docs/flink.md`](docs/flink.md))*
+2. **Lineage + Flink**: cross-system localization.
+   - 2a. Flink module. *(done, see [`docs/flink.md`](docs/flink.md))*
+   - 2b. Lineage tool, the part that actually proves cross-system localization. *(planned)*
 3. **dbt + data quality, and proposals**: full four-module coverage. *(planned, see [`docs/dbt.md`](docs/dbt.md))*
 4. **Execution tool + tiered approval UX**: gated behind a human-approval record, checked independently at the middleware layer and inside the tool itself.
 5. **Trust-based autonomy expansion**: deferred pending audit history showing consistently correct Tier 1 proposals.

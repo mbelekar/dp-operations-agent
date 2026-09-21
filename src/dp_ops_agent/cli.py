@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
 from dp_ops_agent.orchestrator.session import DiagnosisNotSubmittedError, run_diagnosis
+from dp_ops_agent.tools.flink.fixture_gateway import FixtureFlinkGateway
 from dp_ops_agent.tools.kafka.fixture_gateway import FixtureKafkaGateway
 
 load_dotenv()
@@ -29,6 +30,9 @@ def _root() -> None:
 @app.command()
 def diagnose(
     fixture: Path = typer.Option(..., help="Path to a Kafka fixture snapshot JSON file"),
+    flink_fixture: Path = typer.Option(
+        ..., help="Path to a Flink fixture snapshot JSON file"
+    ),
     alert_text: str = typer.Option(..., help="The incident alert text to hand the agent"),
     log_dir: str = typer.Option(
         os.environ.get("AUDIT_LOG_DIR", "logs/audit"), help="Directory for the audit log"
@@ -37,17 +41,19 @@ def diagnose(
         os.environ.get("CLAUDE_MODEL", "claude-sonnet-5"), help="Model id to use"
     ),
 ) -> None:
-    """Run a Phase 1 Kafka-only diagnosis against a fixture incident."""
+    """Run a Kafka + Flink diagnosis against fixture incidents."""
     session_id = str(uuid4())
     audit = JsonlAuditSink(log_dir, session_id)
-    gateway = FixtureKafkaGateway(fixture)
+    kafka_gateway = FixtureKafkaGateway(fixture)
+    flink_gateway = FixtureFlinkGateway(flink_fixture)
 
     try:
         result = asyncio.run(
             run_diagnosis(
                 session_id=session_id,
                 alert_text=alert_text,
-                gateway=gateway,
+                kafka_gateway=kafka_gateway,
+                flink_gateway=flink_gateway,
                 audit=audit,
                 model=model,
             )

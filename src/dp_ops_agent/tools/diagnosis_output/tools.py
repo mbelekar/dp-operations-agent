@@ -26,13 +26,34 @@ class SubmitDiagnosisInput(BaseModel):
     evidence_chain: list[_EvidenceChainEntryInput]
 
 
+def _derive_system(
+    evidence_chain: list[_EvidenceChainEntryInput], collected_signals: list[Signal]
+) -> str:
+    """The diagnosed system is derived from the cited evidence's Signal.tool
+    prefix (e.g. "flink.checkpoint_failure" -> "flink"), not asserted by the
+    model or fixed by the caller — same philosophy as evidence grounding:
+    don't trust a claim that can be derived from real collected data.
+    Cross-system diagnoses (citing signals from more than one system) aren't
+    possible until the lineage tool exists (Phase 2b); until then every
+    session's cited evidence is single-system, so the first entry's system
+    is unambiguous. If lookup fails (an ungrounded signal_id), the fallback
+    value here is never actually returned — Diagnosis construction fails
+    with a clear grounding error before the caller sees this value.
+    """
+    signals_by_id = {s.signal_id: s for s in collected_signals}
+    for entry in evidence_chain:
+        signal = signals_by_id.get(entry.signal_id)
+        if signal is not None:
+            return signal.tool.split(".", 1)[0]
+    return "kafka"
+
+
 def build_diagnosis_output_tools(
     audit: AuditSink,
     session_id: str,
     collected_signals: list[Signal],
     result_holder: dict[str, Diagnosis],
     model_name: str,
-    system: str = "kafka",
 ) -> list[BaseTool]:
     """`result_holder` is a caller-owned dict; on success this tool sets
     result_holder["diagnosis"] so the orchestrator session can retrieve it
@@ -53,7 +74,7 @@ def build_diagnosis_output_tools(
         try:
             diagnosis = Diagnosis(
                 session_id=session_id,
-                system=system,  # type: ignore[arg-type]
+                system=_derive_system(evidence_chain, collected_signals),  # type: ignore[arg-type]
                 root_cause_hypothesis=root_cause_hypothesis,
                 confidence=confidence,
                 evidence_chain=[

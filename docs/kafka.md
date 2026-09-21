@@ -1,6 +1,6 @@
 # Kafka diagnostic module
 
-**Status: Implemented (Phase 1).** This is the only diagnostic module that exists today. See [`flink.md`](flink.md) and [`dbt.md`](dbt.md) for the planned Phase 2/3 modules that will follow the same pattern.
+**Status: Implemented (Phase 1).** See [`flink.md`](flink.md) (also implemented, Phase 2a) and [`dbt.md`](dbt.md) (planned, Phase 3) for the other modules.
 
 ## What it does
 
@@ -18,9 +18,9 @@ sequenceDiagram
     participant Gateway as KafkaMetricsGateway
     participant Audit as JsonlAuditSink
 
-    CLI->>Session: run_diagnosis(session_id, alert_text, gateway, audit, model)
+    CLI->>Session: run_diagnosis(session_id, alert_text, kafka_gateway, flink_gateway, audit, model)
     Session->>Audit: append(diagnosis_run_started)
-    Session->>Session: build_tools(...) → 6 Kafka tools + submit_diagnosis
+    Session->>Session: build_tools(...) → 6 Kafka tools + 5 Flink tools + submit_diagnosis
     Session->>Agent: create_agent(model, tools, system_prompt)
     Session->>Agent: ainvoke({"messages": [alert_text]})
 

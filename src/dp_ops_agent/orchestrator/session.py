@@ -58,7 +58,15 @@ async def run_diagnosis(
     try:
         await agent.ainvoke(
             {"messages": [{"role": "user", "content": alert_text}]},
-            {"recursion_limit": 50},
+            {
+                "recursion_limit": 50,
+                # Correlates a LangSmith trace back to this session's audit
+                # log entries. Tracing itself is opt-in via the LANGSMITH_*
+                # env vars (see .env.example) and a no-op otherwise.
+                "run_name": f"diagnose-kafka-{session_id}",
+                "tags": ["phase-1", "kafka"],
+                "metadata": {"session_id": session_id, "model": model},
+            },
         )
     except GraphRecursionError as exc:
         raise DiagnosisNotSubmittedError(

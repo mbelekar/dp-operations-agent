@@ -50,6 +50,13 @@ An `ANTHROPIC_API_KEY` is needed to actually run the agent (not the offline test
 $ export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
+LangSmith tracing is optional and off by default. It's separate from the audit log described above: the audit log is the compliance record (every diagnosis, every signal, kept for review), LangSmith is a developer-facing view into a run (tool calls, latency, token usage) for debugging. Set these to turn it on, or leave them unset and nothing changes:
+
+```
+$ export LANGSMITH_TRACING=true
+$ export LANGSMITH_API_KEY=ls__...
+```
+
 ## How to run this application
 
 #### To run all the tests:

@@ -65,7 +65,11 @@ $ export LANGSMITH_API_KEY=ls__...
 $ ./auto/test
 ```
 
-18/18 offline tests pass without any live dependency (Kafka, Schema Registry, or Anthropic). Args pass through, so `./auto/test -m llm` also runs the full loop against a live model.
+24/24 offline tests pass without any live dependency (Kafka, Schema Registry, or Anthropic). Args pass through, so `./auto/test -m llm` also runs the full loop against a live model.
+
+Worth being precise about what this suite checks: it's correctness testing, not agent evaluation. It verifies each tool computes the right severity for known fixture data, and that the grounding validator rejects an ungrounded or empty evidence chain. Even the live-model test only checks structural properties (a tool was called, the evidence chain is grounded), not whether the diagnosis is actually correct.
+
+A separate, minimum-viable eval suite covers that: `./auto/eval` runs the agent against four labeled incident scenarios against a live model, and grades each one deterministically, checking whether the correct root-cause signal type was actually cited in the evidence chain, not by judging the hypothesis text. It's real evaluation, not just correctness testing, but still a starting point: four scenarios, single-shot grading (no repeat-and-average to smooth over model non-determinism), and no LLM-as-judge yet.
 
 #### Diagnose an incident:
 

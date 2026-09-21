@@ -64,7 +64,7 @@ Each signal is a typed `Signal` (see `evidence/schema.py`), not free text. The m
 | `hot_partition_skew` | `tools/kafka/tools.py` | Poor partition key choice or a noisy producer (per-partition throughput skew ratio) |
 | `schema_registry_compat` | `tools/kafka/tools.py` | A producer shipped an incompatible schema change |
 
-Build order followed the design doc's cascading-failure example. `under_replicated_partitions` and `isr_churn` came first, since they form the actual root-cause chain (ISR churn *causes* under-replication), then `consumer_lag_trend` (the visible symptom), then the remaining three signals that rule out alternative hypotheses.
+Build order followed the cascading-failure example this module is built around. `under_replicated_partitions` and `isr_churn` came first, since they form the actual root-cause chain (ISR churn *causes* under-replication), then `consumer_lag_trend` (the visible symptom), then the remaining three signals that rule out alternative hypotheses.
 
 ## The gateway abstraction: one seam, two implementations
 
@@ -75,7 +75,7 @@ Every tool talks to Kafka through the `KafkaMetricsGateway` Protocol (`tools/kaf
 
 ## Grounding: how the evidence chain is enforced
 
-The design doc's core safety requirement is that the agent's reasoning stays grounded in real metrics, not paraphrased summaries. This is enforced at three points, not just by prompt instructions:
+The core safety requirement this module is built around is that the agent's reasoning stays grounded in real metrics, not paraphrased summaries. This is enforced at three points, not just by prompt instructions:
 
 1. **Tools return structured data.** Every Kafka tool returns `signal.model_dump_json()`, a pydantic-validated `Signal`, never prose.
 2. **Signals are tracked server-side, not restated by the model.** `build_kafka_tools` and `build_diagnosis_output_tools` (`tools/registry.py`) share one `collected_signals: list[Signal]` list, appended to by every tool call. When the model calls `submit_diagnosis`, the `Diagnosis` is assembled from that list. The model only has to cite `signal_id`s in its `evidence_chain`, never restate signal payloads.

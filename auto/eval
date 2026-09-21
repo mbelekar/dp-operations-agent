@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Runs the agent eval scenario suite against a live model. Makes real, billed
+# Anthropic API calls; not part of ./auto/test. Args pass through, e.g.
+# `./auto/eval --model claude-sonnet-5`.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+source .venv/bin/activate
+python3 -m evals.runner "$@"

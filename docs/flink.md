@@ -7,7 +7,7 @@
 
 ## Why Phase 2, and why paired with lineage
 
-Phase 1 proved the tool-calling loop and evidence format on a single system (Kafka). Phase 2's job is to prove the design doc's actual differentiator: cross-system, lineage-aware localization, which requires at least a second system to localize across. Flink is the natural second system. The design doc's cascading-failure example (Kafka → Flink → dbt → data-quality test) starts with a Kafka broker issue that manifests as a Flink watermark stall, which is exactly the kind of symptom-vs-cause distinction a single-system agent can't make.
+Phase 1 proved the tool-calling loop and evidence format on a single system (Kafka). Phase 2's job is to prove the actual differentiator: cross-system, lineage-aware localization, which requires at least a second system to localize across. Flink is the natural second system. The cascading-failure example (Kafka → Flink → dbt → data-quality test) starts with a Kafka broker issue that manifests as a Flink watermark stall, which is exactly the kind of symptom-vs-cause distinction a single-system agent can't make.
 
 ## Intended signals
 
@@ -15,7 +15,7 @@ Phase 1 proved the tool-calling loop and evidence format on a single system (Kaf
 | --- | --- | --- |
 | `checkpoint_failure` | Flink REST API `/jobs/:id/checkpoints` | Growing state size, slow sink, or backpressure upstream of the barrier |
 | `backpressure_ratio` | Flink REST API `/jobs/:id/vertices/:id/backpressure` | Localizes the actual bottleneck operator, not just "the job is slow" |
-| `watermark_lag` | Flink metrics (`currentInputWatermark`) | Event-time skew, often caused by a stalled upstream Kafka partition. This is the signal that would catch the design doc's cascading example |
+| `watermark_lag` | Flink metrics (`currentInputWatermark`) | Event-time skew, often caused by a stalled upstream Kafka partition. This is the signal that would catch the cascading-failure example above |
 | `state_backend_disk_pressure` | RocksDB metrics / TaskManager disk metrics | State growth from a skewed key, missing TTL, or unbounded window |
 | `savepoint_restore_failure` | Job manager logs | Incompatible state schema after a job graph or operator UID change |
 

@@ -64,7 +64,7 @@ $ export LANGSMITH_API_KEY=ls__...
 $ ./auto/test
 ```
 
-24/24 offline tests pass with no live dependency (Kafka, Schema Registry, or Anthropic). Args pass through, so `./auto/test -m llm` also runs the full loop against a live model.
+33/33 offline tests pass with no live dependency (Kafka, Schema Registry, or Anthropic). Args pass through, so `./auto/test -m llm` also runs the full loop against a live model.
 
 This suite checks code correctness, not agent evaluation. It checks that each tool computes the right severity for known fixture data, and that the grounding validator rejects an ungrounded or empty evidence chain. Even the live-model test only checks structural properties (a tool was called, the evidence chain is grounded), not whether the diagnosis is actually correct.
 
@@ -85,10 +85,25 @@ This runs entirely offline except for the model call. No live Kafka or Flink clu
 
 Run `./auto/run diagnose --help` to see all available options.
 
+#### Run against live infra (optional):
+
+The fixture path above is the default for a reason: instant, deterministic, no Docker needed. There's a separate, opt-in path that stands up a real 3-broker Kafka cluster and a real Flink job with Docker, so the `Live*Gateway` implementations can be proven against actual infra instead of canned JSON:
+
+```
+$ ./auto/live-up
+$ docker compose --profile app run --rm --no-deps -T app
+$ ./auto/live-down
+```
+
+See [`docs/docker.md`](docs/docker.md) for what gets stood up, memory requirements, and known gaps.
+
 ## Project structure
 
 ```
-auto/                          # ./auto/{build,test,run,eval} entrypoint scripts
+auto/                          # ./auto/{build,test,run,eval,live-up,live-down} entrypoint scripts
+docker/                        # live-infra pieces: jmx-exporter, metrics-aggregator, flink-job, kafka-seed
+docker-compose.yml             # optional: real Kafka + Flink, see docs/docker.md
+Dockerfile                     # the app itself, containerized
 evals/                         # minimum-viable eval suite (scenarios.py, grading.py, runner.py)
 tests/                         # unit + integration tests, plus fixture snapshots
 src/dp_ops_agent/

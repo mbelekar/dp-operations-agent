@@ -4,12 +4,24 @@ Verified endpoints (see gateway.py's module docstring for sources):
 GET /jobs/:jobid/checkpoints, GET /jobs/:jobid/vertices/:vertexid/backpressure,
 GET /jobs/:jobid/vertices/:vertexid/metrics, GET /jobs/:jobid/exceptions.
 
-Two things are genuinely best-effort here, not verified against a real
-cluster, and should be checked against your Flink version before relying on
-them: the per-subtask field names inside a backpressure response's
-"subtasks" array, and the watermark metric's naming convention
-(assumed "<subtask>.currentInputWatermark", Flink's usual pattern, but not
-guaranteed across versions/connectors).
+All checked against a real running job (see docker/flink-job/, docs/docker.md),
+not just the REST API docs:
+
+- Backpressure's per-subtask field names ("subtask", "ratio",
+  "backpressure-level") are exactly as assumed. The very first call after a
+  job starts can return status="deprecated" rather than real data, that's
+  Flink's async stack-sampling not having completed yet, not a bug here, a
+  second call a moment later returns real data.
+- The watermark metric id format is actually "<subtask>.<operatorName>.
+  currentInputWatermark", not the bare "<subtask>.currentInputWatermark"
+  originally assumed. watermark_lag()'s `entry["id"].split(".")[0]` still
+  extracts the right subtask index either way, so this didn't need a code
+  change. It does mean a vertex chaining multiple operators (the common
+  case) emits several currentInputWatermark entries per subtask, one per
+  operator, and result[subtask] silently keeps whichever one is last in the
+  response rather than a specific one. Harmless when they agree (they did in
+  testing, since nothing here reorders watermarks), but not correct in
+  general.
 """
 
 from __future__ import annotations

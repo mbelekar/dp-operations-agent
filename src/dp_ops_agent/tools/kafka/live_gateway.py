@@ -1,9 +1,19 @@
 """Live KafkaMetricsGateway backed by confluent-kafka AdminClient, a
 JMX-Prometheus exporter, and the Schema Registry REST API.
 
-Metric names and exporter label conventions vary by cluster deployment;
-adjust `_prometheus_metric_url` and the label-matching regex to your
-environment before pointing this at a real cluster.
+Verified against a real 3-broker cluster (see docker-compose.yml,
+docker/jmx-exporter/, docs/docker.md): cluster_metadata, broker_jmx_metrics,
+consumer_group_offsets, topic_high_watermarks, consumer_group_state_history,
+and schema_registry_subject all return real data.
+
+partition_throughput does not, and can't: Kafka's own JMX only exposes
+BytesInPerSec at broker level and per-topic level, there is no per-partition
+byte-rate MBean to source this from. hot_partition_skew's tool always
+returns an empty throughput map in live mode, confirmed against a real
+broker's JMX rather than assumed. It stays fixture-only until this is
+computed a different way (e.g. sampling AdminClient.describe_log_dirs()
+partition sizes over time), which is a real code change, not an exporter
+config one.
 """
 
 from __future__ import annotations

@@ -70,7 +70,7 @@ The build order followed the cascading-failure example this module is built arou
 
 Every tool talks to Kafka through the `KafkaMetricsGateway` Protocol (`tools/kafka/gateway.py`), not directly through `confluent-kafka` or an HTTP client. This is the one seam that makes the whole loop testable without a live cluster:
 
-- **`LiveKafkaGateway`** (`tools/kafka/live_gateway.py`): the real implementation. Uses `confluent-kafka`'s `AdminClient` for metadata and consumer-group state, a JMX-Prometheus exporter scrape (cached for 5s so one session doesn't re-fetch the same payload twice) for broker and partition metrics, and the Schema Registry REST API.
+- **`LiveKafkaGateway`** (`tools/kafka/live_gateway.py`): the real implementation. Uses `confluent-kafka`'s `AdminClient` for metadata and consumer-group state, a JMX-Prometheus exporter scrape (cached for 5s so one session doesn't re-fetch the same payload twice) for broker and partition metrics, and the Schema Registry REST API. Verified against a real 3-broker cluster, see [`docs/docker.md`](docker.md). One tool doesn't have a real live data source: `hot_partition_skew` needs per-partition throughput, and Kafka's own JMX only exposes that at broker and topic level, never per-partition. It always returns an empty result in live mode, this is a real gap, not an oversight, see `live_gateway.py`'s docstring.
 - **`FixtureKafkaGateway`** (`tools/kafka/fixture_gateway.py`): loads a JSON snapshot and returns deterministic canned responses. Used by every test and by the CLI's `--fixture` flag, so the agent's reasoning can be exercised and demoed with no live infrastructure.
 
 ## Grounding: how the evidence chain is enforced

@@ -136,3 +136,34 @@ services:
         http://jmx-exporter-1:5556/metrics,http://jmx-exporter-2:5556/metrics,http://jmx-exporter-3:5556/metrics
     ports:
       - "5559:5559"
+
+  flink-jobmanager:
+    image: flink:1.18.1-scala_2.12-java11
+    command: jobmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        state.checkpoints.dir: file:///tmp/flink-checkpoints
+    ports:
+      - "8082:8081"
+
+  flink-taskmanager:
+    image: flink:1.18.1-scala_2.12-java11
+    command: taskmanager
+    depends_on:
+      - flink-jobmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 2
+        state.checkpoints.dir: file:///tmp/flink-checkpoints
+
+  flink-job-submitter:
+    build: ./docker/flink-job
+    depends_on:
+      - flink-jobmanager
+      - flink-taskmanager
+      - kafka-init
+    environment:
+      FLINK_JOBMANAGER_HOST: flink-jobmanager
+      KAFKA_BOOTSTRAP_SERVERS: "kafka-1:9092,kafka-2:9092,kafka-3:9092"

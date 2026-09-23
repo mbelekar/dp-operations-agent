@@ -1,12 +1,12 @@
 # Data Platform Operations Agent
 
-This is an agent that diagnoses failures across Kafka, Flink, and dbt. It follows lineage across system boundaries instead of just reacting to whichever alert fired, and proposes remediation for a human to approve. It never auto-executes. Diagnosis and proposal are the agent's job, approval and execution stay a human decision.
+This agent diagnoses failures across Kafka, Flink, and dbt. It traces a root cause across system boundaries instead of stopping at whichever alert fired, and proposes a fix for a human to approve. It does not execute anything automatically. Diagnosis and proposal are the agent's job. Approval and execution are a human's job.
 
-This README covers what's actually built and how it works.
+This README describes what is actually built and how it works.
 
 ## Status
 
-**Phase 2a of 5, implemented and verified offline (unit + wiring tests); live-model verification pending.** Kafka and Flink diagnostics are both available; no lineage yet (that's Phase 2b), so investigations stay single-system for now, no proposal or execution capability. See [Roadmap](#roadmap).
+Phase 2a of 5. Implemented and verified offline (unit and wiring tests). Live-model verification is pending. Kafka and Flink diagnostics are both available. There is no lineage tool yet (Phase 2b), so investigations stay single-system for now. There is no proposal or execution capability yet. See [Roadmap](#roadmap).
 
 | Module | Status | Docs |
 | --- | --- | --- |
@@ -17,41 +17,33 @@ This README covers what's actually built and how it works.
 
 ## Why this exists
 
-Most incidents in a Kafka/Flink/dbt stack cascade instead of originating where the alert fires. A Kafka broker under-replicates a partition, Flink's source operator idles on it, the job's watermark stalls, and three hops downstream a dbt freshness test fails. An on-call engineer, or a naive agent, sees only the dbt failure and starts debugging dbt. This agent walks that chain backward to find the actual origin before proposing anything.
+Most incidents in a Kafka/Flink/dbt stack cascade instead of starting where the alert fires. A Kafka broker under-replicates a partition. Flink's source operator idles on it. The job's watermark stalls. Three hops downstream, a dbt freshness test fails. An on-call engineer, or a naive agent, sees only the dbt failure and starts debugging dbt. This agent walks that chain backward to find the real origin before proposing anything.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    A[Incident alert] --> B[Orchestrator<br/>LangGraph create_agent]
-    B --> C[Diagnostic tools<br/>read-only, always available]
-    C --> D[Signal<br/>typed evidence, not prose]
-    D --> B
-    B --> E[submit_diagnosis]
-    E --> F{Grounded?<br/>every claim cites a<br/>real collected signal}
-    F -- no --> B
-    F -- yes --> G[Diagnosis<br/>+ audit log]
-```
+![Data Platform Operations Agent architecture](docs/diagrams/architecture.png)
 
-The orchestrator is a single tool-calling loop (`langchain.agents.create_agent`, built on LangGraph), not a multi-agent graph. A flat loop is the right fit for "call diagnostic tools until you have grounded evidence, then conclude." See [`docs/kafka.md`](docs/kafka.md) for the exact call sequence.
+The orchestrator is a single tool-calling loop (`langchain.agents.create_agent`, built on LangGraph), not a multi-agent graph. It calls diagnostic tools until it has grounded evidence, then concludes. See [`docs/kafka.md`](docs/kafka.md) for the exact call sequence.
 
-**The one property every module is built around:** the model can't just assert a diagnosis. `submit_diagnosis` is validated by a pydantic `model_validator` that rejects any `evidence_chain` citing a signal the model didn't actually receive from a real tool call this session. That's enforced in code, not just by prompting. Details in [`docs/kafka.md#grounding-how-the-evidence-chain-is-enforced`](docs/kafka.md#grounding-how-the-evidence-chain-is-enforced).
+Every module is built around one property: the model cannot just assert a diagnosis. `submit_diagnosis` is validated by a pydantic `model_validator` that rejects any `evidence_chain` citing a signal the model did not actually receive from a real tool call in that session. This is enforced in code, not by prompting alone. Details in [`docs/kafka.md#grounding-how-the-evidence-chain-is-enforced`](docs/kafka.md#grounding-how-the-evidence-chain-is-enforced).
+
+See [`docs/decisions/`](docs/decisions/) for the reasoning behind these choices, including what was considered and rejected.
 
 ## Set up
 
-Python 3.11+ is required. Running the build script creates a virtualenv (`.venv`) and installs the project with its dev dependencies:
+Python 3.11+ is required. The build script creates a virtualenv (`.venv`) and installs the project with its dev dependencies:
 
 ```
 $ ./auto/build
 ```
 
-An `ANTHROPIC_API_KEY` is needed to actually run the agent (not the offline test suite):
+An `ANTHROPIC_API_KEY` is needed to run the agent (not the offline test suite):
 
 ```
 $ export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-LangSmith tracing is optional and off by default. It's separate from the audit log described above: the audit log is the compliance record (every diagnosis, every signal, kept for review), LangSmith is a developer-facing view into a run (tool calls, latency, token usage) for debugging. Set these to turn it on, or leave them unset and nothing changes:
+LangSmith tracing is optional and off by default. It is separate from the audit log: the audit log is the compliance record (every diagnosis, every signal, kept for review). LangSmith is a developer view into a run (tool calls, latency, token usage) for debugging. Set these to turn it on:
 
 ```
 $ export LANGSMITH_TRACING=true
@@ -66,11 +58,11 @@ $ export LANGSMITH_API_KEY=ls__...
 $ ./auto/test
 ```
 
-24/24 offline tests pass without any live dependency (Kafka, Schema Registry, or Anthropic). Args pass through, so `./auto/test -m llm` also runs the full loop against a live model.
+24/24 offline tests pass with no live dependency (Kafka, Schema Registry, or Anthropic). Args pass through, so `./auto/test -m llm` also runs the full loop against a live model.
 
-Worth being precise about what this suite checks: it's correctness testing, not agent evaluation. It verifies each tool computes the right severity for known fixture data, and that the grounding validator rejects an ungrounded or empty evidence chain. Even the live-model test only checks structural properties (a tool was called, the evidence chain is grounded), not whether the diagnosis is actually correct.
+This suite checks code correctness, not agent evaluation. It checks that each tool computes the right severity for known fixture data, and that the grounding validator rejects an ungrounded or empty evidence chain. Even the live-model test only checks structural properties (a tool was called, the evidence chain is grounded), not whether the diagnosis is actually correct.
 
-A separate, minimum-viable eval suite covers that: `./auto/eval` runs the agent against five labeled incident scenarios (four Kafka, one Flink) against a live model, and grades each one deterministically, checking whether the correct root-cause signal type was actually cited in the evidence chain, not by judging the hypothesis text. It's real evaluation, not just correctness testing, but still a starting point: five scenarios, single-shot grading (no repeat-and-average to smooth over model non-determinism), and no LLM-as-judge yet.
+A separate eval suite checks that. `./auto/eval` runs the agent against five labeled incident scenarios (four Kafka, one Flink) on a live model, and grades each one, checking whether the correct root-cause signal type was cited in the evidence chain. This is a starting point: five scenarios, single-shot grading, no LLM-as-judge yet.
 
 #### Diagnose an incident:
 
@@ -81,11 +73,11 @@ $ ./auto/run diagnose \
     --alert-text "PagerDuty: consumer lag alert on billing-svc/orders"
 ```
 
-This runs entirely offline except for the model call. No live Kafka or Flink cluster is needed, since `--fixture`/`--flink-fixture` point at canned incident snapshots (see [`docs/kafka.md`](docs/kafka.md#the-gateway-abstraction-one-seam-two-implementations) for how that works). Both fixtures are required, even for a single-system incident, Kafka and Flink tools are both always available in a session (see [`docs/flink.md`](docs/flink.md#why-kafka-and-flink-tools-are-both-always-available)). Output is a JSON `Diagnosis` with a full evidence chain, plus a path to the append-only audit log for the session.
+This runs entirely offline except for the model call. No live Kafka or Flink cluster is needed: `--fixture`/`--flink-fixture` point at canned incident snapshots (see [`docs/kafka.md`](docs/kafka.md#the-gateway-abstraction-one-seam-two-implementations) for how that works). Both fixtures are required even for a single-system incident, since Kafka and Flink tools are always available in a session (see [`docs/flink.md`](docs/flink.md#why-kafka-and-flink-tools-are-both-always-available)). Output is a JSON `Diagnosis` with a full evidence chain, plus a path to the audit log for the session.
 
 #### Help options:
 
-To see all available options, run `./auto/run diagnose --help`.
+Run `./auto/run diagnose --help` to see all available options.
 
 ## Project structure
 
@@ -111,7 +103,7 @@ src/dp_ops_agent/
 1. **Single-system prototype**: Kafka diagnostics, no lineage. *(done, see [`docs/kafka.md`](docs/kafka.md))*
 2. **Lineage + Flink**: cross-system localization.
    - 2a. Flink module. *(done, see [`docs/flink.md`](docs/flink.md))*
-   - 2b. Lineage tool, the part that actually proves cross-system localization. *(planned)*
+   - 2b. Lineage tool. Proves cross-system localization. *(planned)*
 3. **dbt + data quality, and proposals**: full four-module coverage. *(planned, see [`docs/dbt.md`](docs/dbt.md))*
 4. **Execution tool + tiered approval UX**: gated behind a human-approval record, checked independently at the middleware layer and inside the tool itself.
 5. **Trust-based autonomy expansion**: deferred pending audit history showing consistently correct Tier 1 proposals.

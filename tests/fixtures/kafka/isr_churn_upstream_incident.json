@@ -1,0 +1,45 @@
+{
+  "cluster_metadata": {
+    "orders": [
+      {"topic": "orders", "id": 0, "replicas": [1, 2, 3], "isr": [1, 2, 3], "leader": 1},
+      {"topic": "orders", "id": 1, "replicas": [1, 2, 3], "isr": [1, 2, 3], "leader": 1}
+    ]
+  },
+  "broker_jmx_metrics": {
+    "1": {
+      "IsrShrinksPerSec": [
+        {"ts": "2026-09-20T14:02:00Z", "value": 0.1},
+        {"ts": "2026-09-20T14:05:00Z", "value": 0.6},
+        {"ts": "2026-09-20T14:08:00Z", "value": 1.5}
+      ],
+      "IsrExpandsPerSec": [
+        {"ts": "2026-09-20T14:02:00Z", "value": 0.1},
+        {"ts": "2026-09-20T14:05:00Z", "value": 0.1},
+        {"ts": "2026-09-20T14:08:00Z", "value": 0.0}
+      ]
+    }
+  },
+  "consumer_group_offsets": {
+    "flink-orders-processing": {"0": 105000, "1": 100000},
+    "orders-processing-job": {"0": 105000, "1": 100000}
+  },
+  "topic_high_watermarks": {
+    "orders": {"0": 105300, "1": 100200}
+  },
+  "consumer_group_state_history": {
+    "flink-orders-processing": [
+      {"ts": "2026-09-20T14:00:00Z", "state": "Stable"},
+      {"ts": "2026-09-20T14:06:00Z", "state": "Stable"}
+    ],
+    "orders-processing-job": [
+      {"ts": "2026-09-20T14:00:00Z", "state": "Stable"},
+      {"ts": "2026-09-20T14:06:00Z", "state": "Stable"}
+    ]
+  },
+  "partition_throughput": {
+    "orders": {"0": 105.0, "1": 98.0}
+  },
+  "schema_registry_subject": {
+    "orders-value": {"is_compatible": true}
+  }
+}

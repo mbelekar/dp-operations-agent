@@ -34,6 +34,7 @@ def test_diagnosis_accepts_evidence_chain_grounded_in_collected_signals():
         session_id="s1",
         system="kafka",
         root_cause_hypothesis="Broker 1 ISR churn caused partition 7 to under-replicate",
+        root_cause_signal_id=signal.signal_id,
         confidence="high",
         evidence_chain=[
             EvidenceChainEntry(step=1, signal_id=signal.signal_id, interpretation="URP detected")
@@ -52,6 +53,7 @@ def test_diagnosis_rejects_empty_evidence_chain_and_signals():
             session_id="s1",
             system="kafka",
             root_cause_hypothesis="bogus, no evidence gathered",
+            root_cause_signal_id="doesnt-matter",
             confidence="low",
             evidence_chain=[],
             signals=[],
@@ -67,11 +69,31 @@ def test_diagnosis_rejects_evidence_chain_citing_unknown_signal_id():
             session_id="s1",
             system="kafka",
             root_cause_hypothesis="bogus",
+            root_cause_signal_id=signal.signal_id,
             confidence="low",
             evidence_chain=[
                 EvidenceChainEntry(step=1, signal_id="not-a-real-signal-id", interpretation="x")
             ],
             signals=[signal],
+            created_at=datetime.now(timezone.utc),
+            model="claude-sonnet-5",
+        )
+
+
+def test_diagnosis_rejects_root_cause_signal_id_not_cited_in_evidence_chain():
+    cited_signal = _make_signal()
+    uncited_signal = _make_signal()
+    with pytest.raises(ValidationError, match="must also be cited"):
+        Diagnosis(
+            session_id="s1",
+            system="kafka",
+            root_cause_hypothesis="bogus",
+            root_cause_signal_id=uncited_signal.signal_id,
+            confidence="low",
+            evidence_chain=[
+                EvidenceChainEntry(step=1, signal_id=cited_signal.signal_id, interpretation="x"),
+            ],
+            signals=[cited_signal, uncited_signal],
             created_at=datetime.now(timezone.utc),
             model="claude-sonnet-5",
         )

@@ -1,6 +1,6 @@
 # Flink diagnostic module
 
-**Status: Implemented (Phase 2a).** Cross-system localization is not available yet. That needs the lineage tool, which is Phase 2b and has not landed. Until then, Flink and Kafka tools run in the same session, but each investigation stays single-system: if the alert names one system, the model is instructed to investigate that system's own tools, since there is no way yet to trace a root cause from one system to another. See [`kafka.md`](kafka.md) for the module this one mirrors, and [`dbt.md`](dbt.md) for the still-planned Phase 3 module.
+**Status: Implemented (Phase 2a).** Cross-system localization is now available too, see [`lineage.md`](lineage.md) (Phase 2b): an alert naming a Flink job can be traced upstream to a Kafka root cause, and the model is instructed to check before concluding a single-system hypothesis. See [`kafka.md`](kafka.md) for the module this one mirrors, and [`dbt.md`](dbt.md) for the still-planned Phase 3 module.
 
 ## What it does
 
@@ -25,9 +25,9 @@ Same pattern as Kafka: every Flink tool talks through the `FlinkMetricsGateway` 
 - **`LiveFlinkGateway`** (`tools/flink/live_gateway.py`): the real implementation. Uses `httpx` against the Flink JobManager REST API (`/jobs/:id/checkpoints`, `/jobs/:id/vertices/:id/backpressure`, `/jobs/:id/vertices/:id/metrics`, `/jobs/:id/exceptions`). All four endpoints were verified against Flink's real REST API docs before writing this module, and later against a real running job, see [`docs/docker.md`](docker.md). Backpressure's field names came back exactly as assumed. The watermark metric's naming convention turned out to include an operator-name segment that wasn't anticipated (`<subtask>.<operatorName>.currentInputWatermark`, not the bare `<subtask>.currentInputWatermark` originally assumed), which is harmless for the current single-vertex topology but is a known rough edge for a vertex chaining multiple operators. Flagged in the file's own docstring.
 - **`FixtureFlinkGateway`** (`tools/flink/fixture_gateway.py`): loads a JSON snapshot, same contract as `FixtureKafkaGateway`. Deterministic responses, safe empty defaults for anything not in the snapshot.
 
-## Why Kafka and Flink tools are both always available
+## Why Kafka, Flink, and lineage tools are all always available
 
-A session's tool list always includes both Kafka and Flink tools, regardless of which system the alert names. This matters for one reason: `Diagnosis.system` is not set by the caller or asserted by the model. It is derived from which system's signal actually got cited in the final `evidence_chain` (see `_derive_system` in `tools/diagnosis_output/tools.py`). That only works correctly if both systems' tools are genuinely available in every session. A Kafka-only tool list would make `system` trivially always `"kafka"`, which defeats the point once a real cross-system session (Phase 2b) needs to derive it correctly instead of trusting a caller-supplied constant.
+A session's tool list always includes Kafka, Flink, and lineage tools, regardless of which system the alert names. This matters for one reason: `Diagnosis.system` is not set by the caller or asserted by the model. It is derived from the signal the model names as `root_cause_signal_id` in `submit_diagnosis` (see `_derive_system` in `tools/diagnosis_output/tools.py`, and [ADR-0007](decisions/0007-root-cause-signal-id.md)). That only works correctly if every system's tools are genuinely available in every session, a Kafka-only tool list would make `system` trivially always `"kafka"`, and without the lineage tool there'd be no way for a Flink-side alert to ever discover a Kafka root cause in the first place.
 
 ## Example run
 

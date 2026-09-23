@@ -23,6 +23,8 @@ from dp_ops_agent.tools.flink.gateway import FlinkMetricsGateway
 from dp_ops_agent.tools.flink.tools import build_flink_tools
 from dp_ops_agent.tools.kafka.gateway import KafkaMetricsGateway
 from dp_ops_agent.tools.kafka.tools import build_kafka_tools
+from dp_ops_agent.tools.lineage.gateway import LineageQueryGateway
+from dp_ops_agent.tools.lineage.tools import build_lineage_tools
 
 TOOL_NAMES: list[str] = [
     "under_replicated_partitions",
@@ -36,6 +38,7 @@ TOOL_NAMES: list[str] = [
     "watermark_lag",
     "state_backend_disk_pressure",
     "savepoint_restore_failure",
+    "walk_lineage_upstream",
     "submit_diagnosis",
 ]
 
@@ -43,6 +46,7 @@ TOOL_NAMES: list[str] = [
 def build_tools(
     kafka_gateway: KafkaMetricsGateway,
     flink_gateway: FlinkMetricsGateway,
+    lineage_gateway: LineageQueryGateway,
     audit: AuditSink,
     session_id: str,
     model_name: str,
@@ -51,7 +55,8 @@ def build_tools(
     collected_signals: list[Signal] = []
     kafka_tools = build_kafka_tools(kafka_gateway, audit, session_id, collected_signals)
     flink_tools = build_flink_tools(flink_gateway, audit, session_id, collected_signals)
+    lineage_tools = build_lineage_tools(lineage_gateway, audit, session_id, collected_signals)
     diagnosis_tools = build_diagnosis_output_tools(
         audit, session_id, collected_signals, result_holder, model_name
     )
-    return [*kafka_tools, *flink_tools, *diagnosis_tools]
+    return [*kafka_tools, *flink_tools, *lineage_tools, *diagnosis_tools]

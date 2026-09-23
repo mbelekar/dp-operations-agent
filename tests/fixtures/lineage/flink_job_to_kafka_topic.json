@@ -1,0 +1,16 @@
+{
+  "upstream_lineage": {
+    "job:flink:orders-processing-job": {
+      "nodes": [
+        {
+          "id": "dataset:kafka:orders",
+          "type": "DATASET",
+          "in_edges": [],
+          "out_edges": [
+            {"origin": "dataset:kafka:orders", "destination": "job:flink:orders-processing-job"}
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -25,6 +25,7 @@ SignalType = Literal[
     "watermark_lag",
     "state_backend_disk_pressure",
     "savepoint_restore_failure",
+    "lineage_upstream",
 ]
 
 Severity = Literal["ok", "warn", "critical"]
@@ -77,6 +78,7 @@ class Diagnosis(BaseModel):
     session_id: str
     system: Literal["kafka", "flink"]
     root_cause_hypothesis: str
+    root_cause_signal_id: str
     confidence: Literal["low", "medium", "high"]
     evidence_chain: list[EvidenceChainEntry]
     signals: list[Signal]
@@ -99,4 +101,16 @@ class Diagnosis(BaseModel):
                     f"evidence_chain references unknown signal_id {entry.signal_id!r} "
                     "(not present in signals collected this session)"
                 )
+        if self.root_cause_signal_id not in signal_ids:
+            raise ValueError(
+                f"root_cause_signal_id {self.root_cause_signal_id!r} is not a signal "
+                "collected this session"
+            )
+        cited_ids = {entry.signal_id for entry in self.evidence_chain}
+        if self.root_cause_signal_id not in cited_ids:
+            raise ValueError(
+                f"root_cause_signal_id {self.root_cause_signal_id!r} must also be cited "
+                "in evidence_chain; naming a root cause without citing it as evidence "
+                "is a contradiction"
+            )
         return self

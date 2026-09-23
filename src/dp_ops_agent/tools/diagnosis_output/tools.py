@@ -22,29 +22,32 @@ class _EvidenceChainEntryInput(BaseModel):
 
 class SubmitDiagnosisInput(BaseModel):
     root_cause_hypothesis: str
+    root_cause_signal_id: str = Field(
+        description="The signal_id, from evidence_chain, of the single signal that is "
+        "the actual root cause. Not just any cited signal — the one the hypothesis "
+        "rests on. Cross-system diagnoses (e.g. a Flink alert traced to a Kafka root "
+        "cause via lineage) cite multiple systems' signals in evidence_chain, so this "
+        "field is what disambiguates which system the diagnosis is actually about."
+    )
     confidence: Literal["low", "medium", "high"]
     evidence_chain: list[_EvidenceChainEntryInput]
 
 
-def _derive_system(
-    evidence_chain: list[_EvidenceChainEntryInput], collected_signals: list[Signal]
-) -> str:
-    """The diagnosed system is derived from the cited evidence's Signal.tool
+def _derive_system(root_cause_signal_id: str, collected_signals: list[Signal]) -> str:
+    """The diagnosed system is derived from the root-cause signal's Signal.tool
     prefix (e.g. "flink.checkpoint_failure" -> "flink"), not asserted by the
     model or fixed by the caller — same philosophy as evidence grounding:
-    don't trust a claim that can be derived from real collected data.
-    Cross-system diagnoses (citing signals from more than one system) aren't
-    possible until the lineage tool exists (Phase 2b); until then every
-    session's cited evidence is single-system, so the first entry's system
-    is unambiguous. If lookup fails (an ungrounded signal_id), the fallback
-    value here is never actually returned — Diagnosis construction fails
-    with a clear grounding error before the caller sees this value.
+    don't trust a claim that can be derived from real collected data. Looks
+    up root_cause_signal_id specifically (not "whichever evidence_chain entry
+    comes first"), since a cross-system diagnosis can legitimately cite
+    signals from more than one system, only the root cause's system is what
+    Diagnosis.system means. If lookup fails, the fallback value here is
+    never actually returned — Diagnosis construction fails with a clear
+    grounding error (evidence_chain_is_grounded) before the caller sees it.
     """
-    signals_by_id = {s.signal_id: s for s in collected_signals}
-    for entry in evidence_chain:
-        signal = signals_by_id.get(entry.signal_id)
-        if signal is not None:
-            return signal.tool.split(".", 1)[0]
+    signal = next((s for s in collected_signals if s.signal_id == root_cause_signal_id), None)
+    if signal is not None:
+        return signal.tool.split(".", 1)[0]
     return "kafka"
 
 
@@ -62,6 +65,7 @@ def build_diagnosis_output_tools(
     @tool(args_schema=SubmitDiagnosisInput)
     async def submit_diagnosis(
         root_cause_hypothesis: str,
+        root_cause_signal_id: str,
         confidence: Literal["low", "medium", "high"],
         evidence_chain: list[_EvidenceChainEntryInput],
     ) -> str:
@@ -70,12 +74,14 @@ def build_diagnosis_output_tools(
         end the session — do not just describe your conclusion in a text
         reply. The signals you collected this session are attached
         automatically; evidence_chain entries must cite a signal_id you
-        actually received from a tool call."""
+        actually received from a tool call, and root_cause_signal_id must be
+        one of those cited signal_ids."""
         try:
             diagnosis = Diagnosis(
                 session_id=session_id,
-                system=_derive_system(evidence_chain, collected_signals),  # type: ignore[arg-type]
+                system=_derive_system(root_cause_signal_id, collected_signals),
                 root_cause_hypothesis=root_cause_hypothesis,
+                root_cause_signal_id=root_cause_signal_id,
                 confidence=confidence,
                 evidence_chain=[
                     EvidenceChainEntry(**e.model_dump()) for e in evidence_chain

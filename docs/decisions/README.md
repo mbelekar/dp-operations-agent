@@ -8,3 +8,4 @@ Short records of decisions that shaped this codebase: what was chosen, what was 
 - [ADR-0004: Diagnose and propose only, no autonomous execution in v1](0004-human-approved-remediation.md)
 - [ADR-0005: Deterministic eval grading, not LLM-as-judge, for the first version](0005-deterministic-eval-grading.md)
 - [ADR-0006: `Diagnosis.system` is derived from cited evidence, not asserted](0006-diagnosis-system-derived-not-asserted.md)
+- [ADR-0007: `submit_diagnosis` requires an explicit `root_cause_signal_id`](0007-root-cause-signal-id.md)

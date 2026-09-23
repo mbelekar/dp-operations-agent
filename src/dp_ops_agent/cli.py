@@ -14,6 +14,8 @@ from dp_ops_agent.tools.flink.fixture_gateway import FixtureFlinkGateway
 from dp_ops_agent.tools.flink.live_gateway import LiveFlinkGateway
 from dp_ops_agent.tools.kafka.fixture_gateway import FixtureKafkaGateway
 from dp_ops_agent.tools.kafka.live_gateway import LiveKafkaGateway
+from dp_ops_agent.tools.lineage.fixture_gateway import FixtureLineageGateway
+from dp_ops_agent.tools.lineage.live_gateway import LiveLineageGateway
 
 load_dotenv()
 
@@ -65,6 +67,9 @@ def diagnose(
     flink_fixture: Path | None = typer.Option(
         None, help="Path to a Flink fixture snapshot JSON file"
     ),
+    lineage_fixture: Path | None = typer.Option(
+        None, help="Path to a lineage fixture snapshot JSON file"
+    ),
     live: bool = typer.Option(
         False,
         "--live",
@@ -95,6 +100,10 @@ def diagnose(
         os.environ.get("FLINK_REST_URL", "http://localhost:8082"),
         help="Live mode only: Flink JobManager REST base URL",
     ),
+    marquez_url: str = typer.Option(
+        os.environ.get("MARQUEZ_URL", "http://localhost:5000"),
+        help="Live mode only: Marquez base URL",
+    ),
     kafka_topics: str | None = typer.Option(
         None, help="Live mode only: comma-separated topics relevant to this incident"
     ),
@@ -108,8 +117,8 @@ def diagnose(
         None, help="Live mode only: Flink vertex_id relevant to this incident"
     ),
 ) -> None:
-    """Run a Kafka + Flink diagnosis, against fixtures by default or live
-    infra with --live."""
+    """Run a Kafka + Flink + lineage diagnosis, against fixtures by default
+    or live infra with --live."""
     session_id = str(uuid4())
     audit = JsonlAuditSink(log_dir, session_id)
 
@@ -120,17 +129,21 @@ def diagnose(
             schema_registry_url=schema_registry_url,
         )
         flink_gateway = LiveFlinkGateway(flink_rest_url)
+        lineage_gateway = LiveLineageGateway(marquez_url)
         alert_text = _augment_alert_text(
             alert_text, kafka_topics, consumer_group, flink_job_id, flink_vertex_id
         )
     else:
-        if fixture is None or flink_fixture is None:
+        if fixture is None or flink_fixture is None or lineage_fixture is None:
             typer.echo(
-                "--fixture and --flink-fixture are required unless --live is set", err=True
+                "--fixture, --flink-fixture, and --lineage-fixture are required "
+                "unless --live is set",
+                err=True,
             )
             raise typer.Exit(code=1)
         kafka_gateway = FixtureKafkaGateway(fixture)
         flink_gateway = FixtureFlinkGateway(flink_fixture)
+        lineage_gateway = FixtureLineageGateway(lineage_fixture)
 
     try:
         result = asyncio.run(
@@ -139,6 +152,7 @@ def diagnose(
                 alert_text=alert_text,
                 kafka_gateway=kafka_gateway,
                 flink_gateway=flink_gateway,
+                lineage_gateway=lineage_gateway,
                 audit=audit,
                 model=model,
             )

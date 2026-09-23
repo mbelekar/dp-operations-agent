@@ -13,6 +13,7 @@ from dp_ops_agent.evidence.schema import Diagnosis
 from dp_ops_agent.orchestrator.prompts import render_system_prompt
 from dp_ops_agent.tools.flink.gateway import FlinkMetricsGateway
 from dp_ops_agent.tools.kafka.gateway import KafkaMetricsGateway
+from dp_ops_agent.tools.lineage.gateway import LineageQueryGateway
 from dp_ops_agent.tools.registry import build_tools
 
 
@@ -32,6 +33,7 @@ async def run_diagnosis(
     alert_text: str,
     kafka_gateway: KafkaMetricsGateway,
     flink_gateway: FlinkMetricsGateway,
+    lineage_gateway: LineageQueryGateway,
     audit: AuditSink,
     model: str,
 ) -> DiagnosisRunResult:
@@ -49,12 +51,14 @@ async def run_diagnosis(
     )
 
     result_holder: dict[str, Diagnosis] = {}
-    tools = build_tools(kafka_gateway, flink_gateway, audit, session_id, model, result_holder)
+    tools = build_tools(
+        kafka_gateway, flink_gateway, lineage_gateway, audit, session_id, model, result_holder
+    )
 
     agent = create_agent(
         model=ChatAnthropic(model=model),
         tools=tools,
-        system_prompt=render_system_prompt(phase=2),
+        system_prompt=render_system_prompt(phase=3),
     )
 
     try:
@@ -66,7 +70,7 @@ async def run_diagnosis(
                 # log entries. Tracing itself is opt-in via the LANGSMITH_*
                 # env vars (see .env.example) and a no-op otherwise.
                 "run_name": f"diagnose-{session_id}",
-                "tags": ["phase-2", "kafka", "flink"],
+                "tags": ["phase-3", "kafka", "flink", "lineage"],
                 "metadata": {"session_id": session_id, "model": model},
             },
         )

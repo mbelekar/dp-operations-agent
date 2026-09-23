@@ -16,6 +16,9 @@ x-kafka-common: &kafka-common
     CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
     KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "3"
     KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    # 512m rather than the image's 1G default so the whole stack fits a ~5GB
+    # Docker VM (3 brokers + Flink + Marquez + exporters).
+    KAFKA_HEAP_OPTS: "-Xmx512m -Xms512m"
     KAFKA_JMX_PORT: "5555"
     KAFKA_JMX_OPTS: >-
       -Dcom.sun.management.jmxremote
@@ -35,10 +38,14 @@ services:
     ports:
       - "9092:9092"
       - "29092:29092"
+    init: true
+    # timeout(1) + init: Docker doesn't kill a healthcheck that overruns its
+    # timeout, so without these each slow check left a JVM behind, which
+    # piled up until the VM swapped and the KRaft quorum couldn't form.
     healthcheck:
-      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
-      interval: 10s
-      timeout: 10s
+      test: ["CMD-SHELL", "KAFKA_HEAP_OPTS=-Xmx128m timeout 20 kafka-topics --bootstrap-server localhost:9092 --list >/dev/null"]
+      interval: 15s
+      timeout: 30s
       retries: 15
       start_period: 30s
 
@@ -52,10 +59,14 @@ services:
       KAFKA_JMX_HOSTNAME: "kafka-2"
     ports:
       - "29093:29092"
+    init: true
+    # timeout(1) + init: Docker doesn't kill a healthcheck that overruns its
+    # timeout, so without these each slow check left a JVM behind, which
+    # piled up until the VM swapped and the KRaft quorum couldn't form.
     healthcheck:
-      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
-      interval: 10s
-      timeout: 10s
+      test: ["CMD-SHELL", "KAFKA_HEAP_OPTS=-Xmx128m timeout 20 kafka-topics --bootstrap-server localhost:9092 --list >/dev/null"]
+      interval: 15s
+      timeout: 30s
       retries: 15
       start_period: 30s
 
@@ -69,10 +80,14 @@ services:
       KAFKA_JMX_HOSTNAME: "kafka-3"
     ports:
       - "29094:29092"
+    init: true
+    # timeout(1) + init: Docker doesn't kill a healthcheck that overruns its
+    # timeout, so without these each slow check left a JVM behind, which
+    # piled up until the VM swapped and the KRaft quorum couldn't form.
     healthcheck:
-      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
-      interval: 10s
-      timeout: 10s
+      test: ["CMD-SHELL", "KAFKA_HEAP_OPTS=-Xmx128m timeout 20 kafka-topics --bootstrap-server localhost:9092 --list >/dev/null"]
+      interval: 15s
+      timeout: 30s
       retries: 15
       start_period: 30s
 
@@ -201,6 +216,65 @@ services:
       FLINK_JOBMANAGER_HOST: flink-jobmanager
       KAFKA_BOOTSTRAP_SERVERS: "kafka-1:9092,kafka-2:9092,kafka-3:9092"
 
+  # Marquez's dev config hardcodes db name, user and password all as
+  # "marquez", only host/port are overridable, so these must match exactly.
+  marquez-db:
+    image: postgres:14-alpine
+    environment:
+      POSTGRES_USER: marquez
+      POSTGRES_PASSWORD: marquez
+      POSTGRES_DB: marquez
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "marquez"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Marquez publishes amd64-only images (MarquezProject/marquez#2804), so on
+  # Apple Silicon this runs under emulation, ~50s to start, hence the long
+  # start_period. SEARCH_ENABLED=false: the default config otherwise expects
+  # an OpenSearch service this stack doesn't run. Host port 5002, not 5000,
+  # since macOS's AirPlay Receiver already listens on 5000.
+  marquez:
+    image: marquezproject/marquez:0.51.1
+    platform: linux/amd64
+    depends_on:
+      marquez-db:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: marquez-db
+      SEARCH_ENABLED: "false"
+      JAVA_OPTS: "-Xmx256m"
+    ports:
+      - "5002:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:5001/healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 90s
+
+  # Static lineage for the demo topology (orders -> orders-processing-job ->
+  # orders-sink), posted as OpenLineage run events. Namespaces "kafka" and
+  # "flink" are what make Marquez's node ids come out as dataset:kafka:{topic}
+  # / job:flink:{job_name}, the convention in tools/lineage/gateway.py. Must
+  # be kept in step with the Flink job's actual sources/sinks by hand.
+  marquez-seed:
+    image: curlimages/curl:8.22.0
+    depends_on:
+      marquez:
+        condition: service_healthy
+    volumes:
+      - ./docker/marquez-seed/events.jsonl:/seed/events.jsonl:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      "set -e;
+      while IFS= read -r event; do
+      curl -sS --fail-with-body -o /dev/null -H 'Content-Type: application/json'
+      -X POST http://marquez:5000/api/v1/lineage -d \"$$event\";
+      done < /seed/events.jsonl;
+      echo 'seeded marquez lineage from /seed/events.jsonl'"
+
   # Opt-in: not part of `docker compose up`/`./auto/live-up` (that's still
   # infra-only, no API key required). Run explicitly with
   # `docker compose run --rm app` once the stack is up.
@@ -221,6 +295,8 @@ services:
         condition: service_started
       flink-job-submitter:
         condition: service_completed_successfully
+      marquez-seed:
+        condition: service_completed_successfully
     environment:
       - ANTHROPIC_API_KEY
       - CLAUDE_MODEL
@@ -228,6 +304,7 @@ services:
       - KAFKA_JMX_URL=http://metrics-aggregator:5559
       - SCHEMA_REGISTRY_URL=http://schema-registry:8081
       - FLINK_REST_URL=http://flink-jobmanager:8081
+      - MARQUEZ_URL=http://marquez:5000
       - AUDIT_LOG_DIR=/home/dpops/logs/audit
     volumes:
       - ./docker/app-live-entrypoint.py:/app/live-entrypoint.py:ro

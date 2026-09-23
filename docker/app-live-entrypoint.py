@@ -45,8 +45,8 @@ def _wait_for_running_job(timeout_seconds: int = 60) -> str:
 
 def main() -> None:
     job_id = _wait_for_running_job()
-    vertices = _get_json(f"{FLINK_REST_URL}/jobs/{job_id}")["vertices"]
-    vertex_id = vertices[0]["id"]
+    job = _get_json(f"{FLINK_REST_URL}/jobs/{job_id}")
+    vertex_id = job["vertices"][0]["id"]
 
     os.execvp(
         "dp-ops-agent",
@@ -60,6 +60,8 @@ def main() -> None:
             "flink-orders-processing",
             "--flink-job-id",
             job_id,
+            "--flink-job-name",
+            job["name"],
             "--flink-vertex-id",
             vertex_id,
             "--alert-text",

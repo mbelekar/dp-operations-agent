@@ -1,8 +1,14 @@
 # Data Platform Operations Agent
 
+![tests](https://github.com/mbelekar/dp-operations-agent/actions/workflows/tests.yml/badge.svg)
+
 This agent diagnoses failures across Kafka, Flink, and dbt. It traces a root cause across system boundaries instead of stopping at whichever alert fired, and proposes a fix for a human to approve. It does not execute anything automatically. Diagnosis and proposal are the agent's job. Approval and execution are a human's job.
 
 This README describes what is actually built and how it works.
+
+![Demo: dp-ops-agent diagnose against a live model](docs/diagrams/demo.gif)
+
+The recording above is a real run: `./auto/run diagnose` against the fixture incident, against a live model, no staged output. The wait between the command and the result is the actual model call, sped up in the GIF.
 
 ## Status
 

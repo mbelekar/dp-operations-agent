@@ -48,3 +48,17 @@ def test_query_filters_by_event_type_and_session(tmp_path):
 def test_query_on_missing_file_returns_empty_list(tmp_path):
     sink = JsonlAuditSink(tmp_path, "does-not-exist")
     assert sink.query() == []
+
+
+def test_tool_error_event_round_trips(tmp_path):
+    sink = JsonlAuditSink(tmp_path, "s1")
+    sink.append(
+        _event(
+            event_type="tool_error",
+            actor="tool",
+            payload={"tool": "hot_partition_skew", "error_type": "RemoteProtocolError"},
+        )
+    )
+
+    [event] = sink.query(event_type="tool_error")
+    assert event.payload["tool"] == "hot_partition_skew"

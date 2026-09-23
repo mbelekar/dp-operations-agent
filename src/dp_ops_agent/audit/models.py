@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 EventType = Literal[
     "diagnosis_run_started",
     "signal_collected",
+    "tool_error",
     "diagnosis_completed",
     "proposal_created",
     "approval_decision",

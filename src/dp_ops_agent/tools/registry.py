@@ -10,6 +10,12 @@ calling handler() when no valid, unexpired approval record exists. Without
 that hook, create_agent will execute a state-changing tool the moment the
 model calls it, silently bypassing the permission boundary the design doc
 requires.
+
+That gate goes *after* orchestrator/tool_errors.py's middleware in
+session.py's create_agent middleware list (later = inner). The error
+middleware must stay outermost, so that a backend failure during an
+approved execution comes back as an error the model sees, instead of being
+masked or aborting the session mid-action.
 """
 
 from __future__ import annotations

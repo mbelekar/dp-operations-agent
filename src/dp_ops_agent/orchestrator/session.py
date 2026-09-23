@@ -11,6 +11,10 @@ from dp_ops_agent.audit.models import AuditEvent
 from dp_ops_agent.audit.sink import AuditSink
 from dp_ops_agent.evidence.schema import Diagnosis
 from dp_ops_agent.orchestrator.prompts import render_system_prompt
+from dp_ops_agent.orchestrator.tool_errors import (
+    build_tool_error_middleware,
+    build_tool_retry_middleware,
+)
 from dp_ops_agent.tools.flink.gateway import FlinkMetricsGateway
 from dp_ops_agent.tools.kafka.gateway import KafkaMetricsGateway
 from dp_ops_agent.tools.lineage.gateway import LineageQueryGateway
@@ -59,6 +63,13 @@ async def run_diagnosis(
         model=ChatAnthropic(model=model),
         tools=tools,
         system_prompt=render_system_prompt(phase=3),
+        # First in the list is outermost: a transport error gets one retry,
+        # and only if that also fails does the error middleware turn it into
+        # an error ToolMessage (see orchestrator/tool_errors.py).
+        middleware=[
+            build_tool_error_middleware(audit, session_id),
+            build_tool_retry_middleware(),
+        ],
     )
 
     try:

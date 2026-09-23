@@ -1,0 +1,124 @@
+"""A live backend failing mid-diagnosis costs the model one signal, not the
+whole session. Runs run_diagnosis end to end with a scripted chat model (no
+API key, no network) and a Kafka gateway whose partition_throughput raises
+the same error a dropped metrics-aggregator scrape produced in practice.
+"""
+
+import json
+from pathlib import Path
+from typing import Any
+
+import httpx
+import pytest
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+
+from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
+from dp_ops_agent.orchestrator import session
+from dp_ops_agent.orchestrator.session import run_diagnosis
+from dp_ops_agent.tools.flink.fixture_gateway import FixtureFlinkGateway
+from dp_ops_agent.tools.kafka.fixture_gateway import FixtureKafkaGateway
+from dp_ops_agent.tools.lineage.fixture_gateway import FixtureLineageGateway
+
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+
+# Module-level, not a _ScriptedModel attribute: BaseChatModel is a pydantic
+# model, so a class attribute would become a per-instance field.
+_SEEN: list[list[BaseMessage]] = []
+
+
+class _ScriptedModel(BaseChatModel):
+    """Calls hot_partition_skew, then under_replicated_partitions, then
+    submits a diagnosis citing the latter's signal_id (read back from its
+    ToolMessage, since signal ids are generated at runtime), then ends the
+    run with a plain reply. Records every
+    message list it's called with so the test can inspect what it saw."""
+
+    @property
+    def _llm_type(self) -> str:
+        return "scripted"
+
+    def bind_tools(self, tools: Any, **kwargs: Any) -> "_ScriptedModel":
+        return self
+
+    def _generate(self, messages: list[BaseMessage], stop=None, run_manager=None, **kwargs):
+        _SEEN.append(list(messages))
+        turn = sum(isinstance(m, AIMessage) for m in messages)
+        if turn == 0:
+            call = ("hot_partition_skew", {"topic": "orders", "window_minutes": 5})
+        elif turn == 1:
+            call = ("under_replicated_partitions", {"topics": ["orders"]})
+        elif turn == 2:
+            signal_id = json.loads(messages[-1].content)["signal_id"]
+            call = (
+                "submit_diagnosis",
+                {
+                    "root_cause_hypothesis": "Under-replicated partitions on orders.",
+                    "root_cause_signal_id": signal_id,
+                    "confidence": "low",
+                    "evidence_chain": [
+                        {"step": 1, "signal_id": signal_id, "interpretation": "URP present."}
+                    ],
+                },
+            )
+        else:
+            return ChatResult(generations=[ChatGeneration(message=AIMessage(content="Done."))])
+        name, args = call
+        message = AIMessage(
+            content="", tool_calls=[{"name": name, "args": args, "id": f"call-{turn}"}]
+        )
+        return ChatResult(generations=[ChatGeneration(message=message)])
+
+
+class _FailingKafkaGateway(FixtureKafkaGateway):
+    def __init__(self, fixture: Path, exc: Exception) -> None:
+        super().__init__(fixture)
+        self._exc = exc
+
+    def partition_throughput(self, topic: str, window_minutes: int) -> dict[int, float]:
+        raise self._exc
+
+
+async def _run(tmp_path, monkeypatch, exc: Exception):
+    _SEEN.clear()
+    monkeypatch.setattr(session, "ChatAnthropic", lambda model: _ScriptedModel())
+    audit = JsonlAuditSink(tmp_path, "s1")
+    result = await run_diagnosis(
+        session_id="s1",
+        alert_text="consumer lag alert on orders",
+        kafka_gateway=_FailingKafkaGateway(FIXTURES / "kafka" / "urp_lag_spike_incident.json", exc),
+        flink_gateway=FixtureFlinkGateway(FIXTURES / "flink" / "healthy_baseline.json"),
+        lineage_gateway=FixtureLineageGateway(FIXTURES / "lineage" / "empty.json"),
+        audit=audit,
+        model="scripted",
+    )
+    return result, audit
+
+
+@pytest.mark.asyncio
+async def test_backend_error_is_reported_to_model_and_diagnosis_completes(tmp_path, monkeypatch):
+    exc = httpx.RemoteProtocolError(
+        "Server disconnected without sending a response.",
+        request=httpx.Request("GET", "http://metrics-aggregator:5559/metrics"),
+    )
+
+    result, audit = await _run(tmp_path, monkeypatch, exc)
+
+    assert result.diagnosis.confidence == "low"
+    skew_results = [
+        m
+        for m in _SEEN[-1]
+        if isinstance(m, ToolMessage) and m.name == "hot_partition_skew"
+    ]
+    assert len(skew_results) == 1
+    assert skew_results[0].status == "error"
+    assert "RemoteProtocolError" in skew_results[0].content
+    [event] = audit.query(event_type="tool_error")
+    assert event.payload["tool"] == "hot_partition_skew"
+
+
+@pytest.mark.asyncio
+async def test_non_backend_error_still_aborts_the_session(tmp_path, monkeypatch):
+    with pytest.raises(ValueError, match="real bug"):
+        await _run(tmp_path, monkeypatch, ValueError("real bug"))

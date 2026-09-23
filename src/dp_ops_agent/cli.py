@@ -37,17 +37,21 @@ def _augment_alert_text(
     consumer_group: str | None,
     flink_job_id: str | None,
     flink_vertex_id: str | None,
+    flink_job_name: str | None = None,
 ) -> str:
     """Live mode has no fixture pointing the model at the right topic/job.
     Tool schemas require concrete ids (job_id, vertex_id, ...) the model has
     no way to guess from prose alone, so any identifiers the caller already
     knows are appended as an explicit block rather than left to the model to
-    invent."""
+    invent. The job name matters separately from job_id: lineage node ids
+    are keyed by name (job:flink:{job_name}), not by Flink's random job_id."""
     known = []
     if kafka_topics:
         known.append(f"Kafka topics: {kafka_topics}")
     if consumer_group:
         known.append(f"Kafka consumer group: {consumer_group}")
+    if flink_job_name:
+        known.append(f"Flink job name: {flink_job_name}")
     if flink_job_id:
         known.append(f"Flink job_id: {flink_job_id}")
     if flink_vertex_id:
@@ -113,6 +117,9 @@ def diagnose(
     flink_job_id: str | None = typer.Option(
         None, help="Live mode only: Flink job_id relevant to this incident"
     ),
+    flink_job_name: str | None = typer.Option(
+        None, help="Live mode only: Flink job name, used to build lineage node ids"
+    ),
     flink_vertex_id: str | None = typer.Option(
         None, help="Live mode only: Flink vertex_id relevant to this incident"
     ),
@@ -131,7 +138,12 @@ def diagnose(
         flink_gateway = LiveFlinkGateway(flink_rest_url)
         lineage_gateway = LiveLineageGateway(marquez_url)
         alert_text = _augment_alert_text(
-            alert_text, kafka_topics, consumer_group, flink_job_id, flink_vertex_id
+            alert_text,
+            kafka_topics,
+            consumer_group,
+            flink_job_id,
+            flink_vertex_id,
+            flink_job_name,
         )
     else:
         if fixture is None or flink_fixture is None or lineage_fixture is None:

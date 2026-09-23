@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Brings up the live Kafka + Flink infra (docker-compose.yml): a 3-broker
-# Kafka cluster, Schema Registry, a JMX exporter per broker, and a Flink
-# job/task manager running the demo streaming job. Optional: `./auto/run`
+# Brings up the live Kafka + Flink + lineage infra (docker-compose.yml): a
+# 3-broker Kafka cluster, Schema Registry, a JMX exporter per broker, a Flink
+# job/task manager running the demo streaming job, and Marquez (with
+# Postgres) seeded with that job's lineage. Optional: `./auto/run`
 # still works fully offline against fixtures without this. Memory-heavy
 # (needs a few GB free), so this is opt-in, not part of ./auto/build.
 set -euo pipefail

@@ -11,3 +11,4 @@ logs/evals/*.jsonl
 .pytest_cache/
 .mypy_cache/
 docs/plans/
+logs/

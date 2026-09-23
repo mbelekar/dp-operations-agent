@@ -1,0 +1,12 @@
+hostPort: ${JMX_TARGET_HOST}:${JMX_TARGET_PORT}
+lowercaseOutputName: false
+lowercaseOutputLabelNames: false
+rules:
+  - pattern: 'kafka.server<type=ReplicaManager, name=IsrShrinksPerSec><>OneMinuteRate'
+    name: IsrShrinksPerSec
+    labels:
+      broker: "${BROKER_ID}"
+  - pattern: 'kafka.server<type=ReplicaManager, name=IsrExpandsPerSec><>OneMinuteRate'
+    name: IsrExpandsPerSec
+    labels:
+      broker: "${BROKER_ID}"

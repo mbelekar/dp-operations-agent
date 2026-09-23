@@ -1,0 +1,138 @@
+x-kafka-common: &kafka-common
+  image: confluentinc/cp-kafka:7.6.1
+  environment: &kafka-common-env
+    KAFKA_PROCESS_ROLES: "broker,controller"
+    KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+    KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
+    KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+    KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+    KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
+    CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+    KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "3"
+    KAFKA_JMX_PORT: "5555"
+    KAFKA_JMX_OPTS: >-
+      -Dcom.sun.management.jmxremote
+      -Dcom.sun.management.jmxremote.authenticate=false
+      -Dcom.sun.management.jmxremote.ssl=false
+      -Dcom.sun.management.jmxremote.rmi.port=5555
+
+services:
+  kafka-1:
+    <<: *kafka-common
+    hostname: kafka-1
+    environment:
+      <<: *kafka-common-env
+      KAFKA_NODE_ID: "1"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-1:9092"
+      KAFKA_JMX_HOSTNAME: "kafka-1"
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+
+  kafka-2:
+    <<: *kafka-common
+    hostname: kafka-2
+    environment:
+      <<: *kafka-common-env
+      KAFKA_NODE_ID: "2"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-2:9092"
+      KAFKA_JMX_HOSTNAME: "kafka-2"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+
+  kafka-3:
+    <<: *kafka-common
+    hostname: kafka-3
+    environment:
+      <<: *kafka-common-env
+      KAFKA_NODE_ID: "3"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-3:9092"
+      KAFKA_JMX_HOSTNAME: "kafka-3"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.1
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "PLAINTEXT://kafka-1:9092,PLAINTEXT://kafka-2:9092,PLAINTEXT://kafka-3:9092"
+      SCHEMA_REGISTRY_LISTENERS: "http://0.0.0.0:8081"
+    ports:
+      - "8081:8081"
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.1
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command: >
+      "kafka-topics --bootstrap-server kafka-1:9092 --create --if-not-exists
+      --topic orders --partitions 6 --replication-factor 3 &&
+      kafka-topics --bootstrap-server kafka-1:9092 --describe --topic orders"
+
+  jmx-exporter-1:
+    build: ./docker/jmx-exporter
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+    environment:
+      JMX_TARGET_HOST: kafka-1
+      JMX_TARGET_PORT: "5555"
+      BROKER_ID: "1"
+
+  jmx-exporter-2:
+    build: ./docker/jmx-exporter
+    depends_on:
+      kafka-2:
+        condition: service_healthy
+    environment:
+      JMX_TARGET_HOST: kafka-2
+      JMX_TARGET_PORT: "5555"
+      BROKER_ID: "2"
+
+  jmx-exporter-3:
+    build: ./docker/jmx-exporter
+    depends_on:
+      kafka-3:
+        condition: service_healthy
+    environment:
+      JMX_TARGET_HOST: kafka-3
+      JMX_TARGET_PORT: "5555"
+      BROKER_ID: "3"
+
+  metrics-aggregator:
+    build: ./docker/metrics-aggregator
+    depends_on:
+      - jmx-exporter-1
+      - jmx-exporter-2
+      - jmx-exporter-3
+    environment:
+      UPSTREAM_METRICS_URLS: >-
+        http://jmx-exporter-1:5556/metrics,http://jmx-exporter-2:5556/metrics,http://jmx-exporter-3:5556/metrics
+    ports:
+      - "5559:5559"

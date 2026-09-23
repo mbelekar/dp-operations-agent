@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Tears down everything ./auto/live-up started, including volumes (Kafka's
+# KRaft log and Flink's checkpoint directory aren't meant to persist between
+# runs of this demo stack).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+docker compose down -v

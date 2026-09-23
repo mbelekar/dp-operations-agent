@@ -9,6 +9,7 @@ x-kafka-common: &kafka-common
     KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
     CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
     KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "3"
+    KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
     KAFKA_JMX_PORT: "5555"
     KAFKA_JMX_OPTS: >-
       -Dcom.sun.management.jmxremote
@@ -93,7 +94,23 @@ services:
     command: >
       "kafka-topics --bootstrap-server kafka-1:9092 --create --if-not-exists
       --topic orders --partitions 6 --replication-factor 3 &&
-      kafka-topics --bootstrap-server kafka-1:9092 --describe --topic orders"
+      kafka-topics --bootstrap-server kafka-1:9092 --create --if-not-exists
+      --topic orders-sink --partitions 6 --replication-factor 3 &&
+      kafka-topics --bootstrap-server kafka-1:9092 --describe --topic orders &&
+      kafka-topics --bootstrap-server kafka-1:9092 --describe --topic orders-sink"
+
+  kafka-seed:
+    image: confluentinc/cp-kafka:7.6.1
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./docker/kafka-seed/orders.jsonl:/seed/orders.jsonl:ro
+    entrypoint: ["/bin/bash", "-c"]
+    command: >
+      "kafka-console-producer --bootstrap-server kafka-1:9092,kafka-2:9092,kafka-3:9092
+      --topic orders < /seed/orders.jsonl &&
+      echo 'seeded orders topic from /seed/orders.jsonl'"
 
   jmx-exporter-1:
     build: ./docker/jmx-exporter
@@ -161,9 +178,14 @@ services:
   flink-job-submitter:
     build: ./docker/flink-job
     depends_on:
-      - flink-jobmanager
-      - flink-taskmanager
-      - kafka-init
+      flink-jobmanager:
+        condition: service_started
+      flink-taskmanager:
+        condition: service_started
+      kafka-init:
+        condition: service_completed_successfully
+      kafka-seed:
+        condition: service_completed_successfully
     environment:
       FLINK_JOBMANAGER_HOST: flink-jobmanager
       KAFKA_BOOTSTRAP_SERVERS: "kafka-1:9092,kafka-2:9092,kafka-3:9092"

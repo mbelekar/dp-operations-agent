@@ -39,7 +39,7 @@ class FixtureFlinkGateway:
 
     def backpressure(self, job_id: str, vertex_id: str) -> BackpressureView:
         raw = self._data.get("backpressure", {}).get(job_id, {}).get(
-            vertex_id, {"status": "ok", "backpressure_level": "ok", "subtasks": []}
+            vertex_id, {"status": "not_found", "backpressure_level": "unknown", "subtasks": []}
         )
         return BackpressureView(**raw)
 

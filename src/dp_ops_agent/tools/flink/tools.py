@@ -46,6 +46,15 @@ def build_flink_tools(
         view = gateway.checkpoint_history(job_id)
         most_recent_failed = bool(view.history) and view.history[-1].status == "FAILED"
         critical = most_recent_failed or view.counts.failed >= 3
+        observed = {
+            "counts": view.counts.model_dump(),
+            "most_recent_status": view.history[-1].status if view.history else None,
+        }
+        if view.counts.total == 0 and not view.history:
+            severity = "unknown"
+            observed["no_data_reason"] = f"no checkpoints recorded for job {job_id!r}"
+        else:
+            severity = "critical" if critical else ("warn" if view.counts.failed >= 1 else "ok")
         signal = Signal(
             tool="flink.checkpoint_failure",
             signal_type="checkpoint_failure",
@@ -53,11 +62,8 @@ def build_flink_tools(
             window_start=now,
             window_end=now,
             scope={"job_id": job_id},
-            observed={
-                "counts": view.counts.model_dump(),
-                "most_recent_status": view.history[-1].status if view.history else None,
-            },
-            severity="critical" if critical else ("warn" if view.counts.failed >= 1 else "ok"),
+            observed=observed,
+            severity=severity,
             raw_source_ref=f"flink:/jobs/{job_id}/checkpoints",
         )
         return _record_signal(audit, session_id, collected_signals, signal)
@@ -70,6 +76,18 @@ def build_flink_tools(
         now = datetime.now(timezone.utc)
         view = gateway.backpressure(job_id, vertex_id)
         level = view.backpressure_level.lower()
+        observed = {
+            "status": view.status,
+            "backpressure_level": view.backpressure_level,
+            "subtasks": [s.model_dump() for s in view.subtasks],
+        }
+        if not view.subtasks:
+            severity = "unknown"
+            observed["no_data_reason"] = (
+                f"no backpressure samples for vertex {vertex_id!r} of job {job_id!r}"
+            )
+        else:
+            severity = "critical" if level == "high" else ("warn" if level == "low" else "ok")
         signal = Signal(
             tool="flink.backpressure_ratio",
             signal_type="backpressure_ratio",
@@ -77,12 +95,8 @@ def build_flink_tools(
             window_start=now,
             window_end=now,
             scope={"job_id": job_id, "vertex_id": vertex_id},
-            observed={
-                "status": view.status,
-                "backpressure_level": view.backpressure_level,
-                "subtasks": [s.model_dump() for s in view.subtasks],
-            },
-            severity="critical" if level == "high" else ("warn" if level == "low" else "ok"),
+            observed=observed,
+            severity=severity,
             raw_source_ref=f"flink:/jobs/{job_id}/vertices/{vertex_id}/backpressure",
         )
         return _record_signal(audit, session_id, collected_signals, signal)
@@ -95,6 +109,19 @@ def build_flink_tools(
         now = datetime.now(timezone.utc)
         lag_by_subtask = gateway.watermark_lag(job_id, vertex_id)
         max_lag_ms = max(lag_by_subtask.values(), default=0.0)
+        observed = {
+            "lag_ms_by_subtask": {str(k): v for k, v in lag_by_subtask.items()},
+            "max_lag_ms": max_lag_ms,
+        }
+        if not lag_by_subtask:
+            severity = "unknown"
+            observed["no_data_reason"] = (
+                f"no watermark metrics for vertex {vertex_id!r} of job {job_id!r}"
+            )
+        else:
+            severity = (
+                "critical" if max_lag_ms > 60_000 else ("warn" if max_lag_ms > 10_000 else "ok")
+            )
         signal = Signal(
             tool="flink.watermark_lag",
             signal_type="watermark_lag",
@@ -102,11 +129,8 @@ def build_flink_tools(
             window_start=now,
             window_end=now,
             scope={"job_id": job_id, "vertex_id": vertex_id},
-            observed={
-                "lag_ms_by_subtask": {str(k): v for k, v in lag_by_subtask.items()},
-                "max_lag_ms": max_lag_ms,
-            },
-            severity="critical" if max_lag_ms > 60_000 else ("warn" if max_lag_ms > 10_000 else "ok"),
+            observed=observed,
+            severity=severity,
             raw_source_ref=f"flink:/jobs/{job_id}/vertices/{vertex_id}/metrics (currentInputWatermark)",
         )
         return _record_signal(audit, session_id, collected_signals, signal)
@@ -119,9 +143,15 @@ def build_flink_tools(
         now = datetime.now(timezone.utc)
         metrics = gateway.task_manager_disk_metrics(job_id, vertex_id)
         disk_used_ratio = metrics.get("disk_used_ratio")
-        if disk_used_ratio is not None and disk_used_ratio > 0.9:
+        observed = {"metrics": metrics}
+        if disk_used_ratio is None:
+            severity = "unknown"
+            observed["no_data_reason"] = (
+                f"no disk_used_ratio metric for vertex {vertex_id!r} of job {job_id!r}"
+            )
+        elif disk_used_ratio > 0.9:
             severity = "critical"
-        elif disk_used_ratio is not None and disk_used_ratio > 0.7:
+        elif disk_used_ratio > 0.7:
             severity = "warn"
         else:
             severity = "ok"
@@ -132,7 +162,7 @@ def build_flink_tools(
             window_start=now,
             window_end=now,
             scope={"job_id": job_id, "vertex_id": vertex_id},
-            observed={"metrics": metrics},
+            observed=observed,
             severity=severity,
             raw_source_ref=f"flink:/jobs/{job_id}/vertices/{vertex_id}/metrics (disk/rocksdb)",
         )

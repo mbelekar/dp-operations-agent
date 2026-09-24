@@ -33,7 +33,9 @@ SignalType = Literal[
     "dependency_graph_compile_error",
 ]
 
-Severity = Literal["ok", "warn", "critical"]
+# "unknown": the tool found no data for the identifiers it was asked about
+# (an unknown vertex, topic, node...). Not evidence of health, see ADR-0009.
+Severity = Literal["ok", "warn", "critical", "unknown"]
 Tier = Literal[0, 1, 2]
 
 
@@ -117,5 +119,11 @@ class Diagnosis(BaseModel):
                 f"root_cause_signal_id {self.root_cause_signal_id!r} must also be cited "
                 "in evidence_chain; naming a root cause without citing it as evidence "
                 "is a contradiction"
+            )
+        root_cause = next(s for s in self.signals if s.signal_id == self.root_cause_signal_id)
+        if root_cause.severity == "unknown":
+            raise ValueError(
+                f"root_cause_signal_id {self.root_cause_signal_id!r} has severity 'unknown': "
+                "the tool found no data for it, so it can't be what a hypothesis rests on"
             )
         return self

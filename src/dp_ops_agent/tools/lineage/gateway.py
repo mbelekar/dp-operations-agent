@@ -42,6 +42,9 @@ class LineageGraphView(BaseModel):
     """
 
     nodes: list[LineageNode]
+    # False when the lineage backend has never seen the queried node, as
+    # opposed to a known node with nothing upstream (both have no nodes).
+    node_found: bool = True
 
 
 class LineageQueryGateway(Protocol):

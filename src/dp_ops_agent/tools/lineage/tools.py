@@ -52,6 +52,14 @@ def build_lineage_tools(
         upstream_nodes = [
             {"id": n.id, "type": n.type} for n in view.nodes
         ]
+        observed: dict = {"upstream_nodes": upstream_nodes}
+        if view.node_found:
+            severity = "ok"
+        else:
+            severity = "unknown"
+            observed["no_data_reason"] = (
+                f"lineage has no node {node_id!r}; not the same as nothing upstream"
+            )
         signal = Signal(
             tool="lineage.walk_lineage_upstream",
             signal_type="lineage_upstream",
@@ -59,8 +67,8 @@ def build_lineage_tools(
             window_start=now,
             window_end=now,
             scope={"node_id": node_id},
-            observed={"upstream_nodes": upstream_nodes},
-            severity="ok",
+            observed=observed,
+            severity=severity,
             raw_source_ref=f"marquez:/api/v1/lineage?nodeId={node_id}",
         )
         return _record_signal(audit, session_id, collected_signals, signal)

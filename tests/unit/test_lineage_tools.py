@@ -39,9 +39,21 @@ async def test_walk_lineage_upstream_finds_kafka_topic(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_walk_lineage_upstream_unknown_node_is_empty(tmp_path):
+async def test_walk_lineage_upstream_unknown_node_is_unknown(tmp_path):
+    # Not "nothing upstream": the graph has never heard of this node.
     tools, _, _ = _build_tools(tmp_path, "empty.json")
     result = await tools["walk_lineage_upstream"].ainvoke({"node_id": "job:flink:no-such-job"})
+    signal = _signal_from_result(result)
+
+    assert signal.severity == "unknown"
+    assert signal.observed["upstream_nodes"] == []
+    assert signal.observed["no_data_reason"]
+
+
+@pytest.mark.asyncio
+async def test_walk_lineage_upstream_known_source_node_with_nothing_upstream_is_ok(tmp_path):
+    tools, _, _ = _build_tools(tmp_path, "flink_job_to_kafka_topic.json")
+    result = await tools["walk_lineage_upstream"].ainvoke({"node_id": "dataset:kafka:orders"})
     signal = _signal_from_result(result)
 
     assert signal.severity == "ok"

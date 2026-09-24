@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -131,3 +132,55 @@ async def test_every_tool_call_is_audit_logged(tmp_path):
     events = audit.query(event_type="signal_collected")
     assert len(events) == 2
     assert len(collected) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [
+        ("under_replicated_partitions", {"topics": ["no-such-topic"]}),
+        ("isr_churn", {"broker_id": 99, "window_minutes": 10}),
+        ("consumer_lag_trend", {"group": "billing-svc", "topic": "no-such-topic"}),
+        # Used to be critical: no committed offsets was read as offset 0, so
+        # the "lag" was the whole topic.
+        ("consumer_lag_trend", {"group": "no-such-group", "topic": "orders"}),
+        ("rebalance_frequency", {"group": "no-such-group", "window_minutes": 10}),
+        ("hot_partition_skew", {"topic": "no-such-topic", "window_minutes": 10}),
+        # Used to be ok: an empty registry response was read as is_compatible.
+        ("schema_registry_compat", {"subject": "no-such-subject"}),
+    ],
+    ids=["urp", "isr", "lag-unknown-topic", "lag-unknown-group", "rebalance", "skew", "schema"],
+)
+async def test_no_data_for_the_identifiers_is_unknown(tmp_path, tool, args):
+    tools, _, _ = _build_tools(tmp_path, "healthy_baseline.json")
+    signal = _signal_from_result(await tools[tool].ainvoke(args))
+
+    assert signal.severity == "unknown"
+    assert signal.observed["no_data_reason"]
+
+
+@pytest.mark.asyncio
+async def test_consumer_lag_ignores_partitions_without_a_committed_offset(tmp_path):
+    fixture = tmp_path / "partial_offsets.json"
+    fixture.write_text(
+        json.dumps(
+            {
+                "consumer_group_offsets": {"billing-svc": {"0": 1000}},
+                "topic_high_watermarks": {"orders": {"0": 1050, "1": 900000}},
+            }
+        )
+    )
+    tools = {
+        t.name: t
+        for t in build_kafka_tools(
+            FixtureKafkaGateway(fixture), JsonlAuditSink(tmp_path, "s"), "s", []
+        )
+    }
+
+    signal = _signal_from_result(
+        await tools["consumer_lag_trend"].ainvoke({"group": "billing-svc", "topic": "orders"})
+    )
+
+    assert signal.severity == "ok"
+    assert signal.observed["lag_by_partition"] == {"0": 50}
+    assert signal.observed["partitions_without_committed_offset"] == ["1"]

@@ -65,6 +65,7 @@ def test_unknown_node_returns_empty_view(message):
     )
 
     assert view.nodes == []
+    assert view.node_found is False
 
 
 @pytest.mark.parametrize(
@@ -100,3 +101,4 @@ def test_two_hop_walk_returns_ancestors_only():
         "job:flink:orders-processing-job",
     ]
     assert [n.id for n in from_job.nodes] == ["dataset:kafka:orders"]
+    assert from_sink.node_found and from_job.node_found

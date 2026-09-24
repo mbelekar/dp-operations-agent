@@ -104,3 +104,37 @@ async def test_every_tool_call_is_audit_logged(tmp_path):
     events = audit.query(event_type="signal_collected")
     assert len(events) == 2
     assert len(collected) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [
+        ("watermark_lag", {"job_id": "orders-processing-job", "vertex_id": "no-such-vertex"}),
+        ("backpressure_ratio", {"job_id": "orders-processing-job", "vertex_id": "no-such-vertex"}),
+        (
+            "state_backend_disk_pressure",
+            {"job_id": "orders-processing-job", "vertex_id": "no-such-vertex"},
+        ),
+        ("checkpoint_failure", {"job_id": "no-such-job"}),
+    ],
+)
+async def test_no_data_for_the_identifiers_is_unknown_not_ok(tmp_path, tool, args):
+    tools, _, _ = _build_tools(tmp_path, "healthy_baseline.json")
+    signal = _signal_from_result(await tools[tool].ainvoke(args))
+
+    assert signal.severity == "unknown"
+    assert signal.observed["no_data_reason"]
+
+
+@pytest.mark.asyncio
+async def test_savepoint_restore_with_no_exceptions_is_still_ok(tmp_path):
+    # For a job that exists, an empty exception history is genuinely healthy.
+    tools, _, _ = _build_tools(tmp_path, "healthy_baseline.json")
+    signal = _signal_from_result(
+        await tools["savepoint_restore_failure"].ainvoke(
+            {"job_id": "orders-processing-job", "window_minutes": 10}
+        )
+    )
+
+    assert signal.severity == "ok"

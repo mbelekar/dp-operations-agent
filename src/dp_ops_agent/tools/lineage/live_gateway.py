@@ -54,7 +54,7 @@ class LiveLineageGateway:
             f"{self._base_url}/api/v1/lineage", params={"nodeId": node_id, "depth": depth}
         )
         if _is_unknown_node(resp):
-            return LineageGraphView(nodes=[])
+            return LineageGraphView(nodes=[], node_found=False)
         resp.raise_for_status()
         data = resp.json()
 

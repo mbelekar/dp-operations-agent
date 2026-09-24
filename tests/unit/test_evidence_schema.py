@@ -126,3 +126,36 @@ def test_diagnosis_accepts_dbt_root_cause(signal_type):
         model="claude-sonnet-5",
     )
     assert diagnosis.system == "dbt"
+
+
+def _diagnosis(root: Signal, signals: list[Signal]) -> Diagnosis:
+    return Diagnosis(
+        session_id="s1",
+        system="flink",
+        root_cause_hypothesis="h",
+        root_cause_signal_id=root.signal_id,
+        confidence="low",
+        evidence_chain=[
+            EvidenceChainEntry(step=i, signal_id=s.signal_id, interpretation="x")
+            for i, s in enumerate(signals, start=1)
+        ],
+        signals=signals,
+        created_at=datetime.now(timezone.utc),
+        model="claude-sonnet-5",
+    )
+
+
+def test_unknown_signal_cannot_be_the_root_cause():
+    no_data = _make_signal(severity="unknown", observed={"no_data_reason": "no such vertex"})
+
+    with pytest.raises(ValidationError, match="severity 'unknown'"):
+        _diagnosis(no_data, [no_data])
+
+
+def test_unknown_signal_can_still_be_cited_as_evidence():
+    no_data = _make_signal(severity="unknown", observed={"no_data_reason": "no such vertex"})
+    root = _make_signal()
+
+    diagnosis = _diagnosis(root, [no_data, root])
+
+    assert diagnosis.evidence_chain[0].signal_id == no_data.signal_id

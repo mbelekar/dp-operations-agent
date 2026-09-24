@@ -55,6 +55,12 @@ def build_kafka_tools(
             for p in meta.partitions
         ]
         critical = any(p["under_replicated"] or p["offline"] for p in partitions)
+        observed: dict = {"partitions": partitions}
+        if not partitions:
+            severity = "unknown"
+            observed["no_data_reason"] = f"no partition metadata for topics {topics}"
+        else:
+            severity = "critical" if critical else "ok"
         signal = Signal(
             tool="kafka.under_replicated_partitions",
             signal_type="under_replicated_partitions",
@@ -62,8 +68,8 @@ def build_kafka_tools(
             window_start=now,
             window_end=now,
             scope={"topics": ",".join(topics)},
-            observed={"partitions": partitions},
-            severity="critical" if critical else "ok",
+            observed=observed,
+            severity=severity,
             raw_source_ref="AdminClient.list_topics(metadata)",
         )
         return _record_signal(audit, session_id, collected_signals, signal)
@@ -80,6 +86,18 @@ def build_kafka_tools(
         shrinks = [s.value for s in metrics.get("IsrShrinksPerSec", [])]
         expands = [s.value for s in metrics.get("IsrExpandsPerSec", [])]
         max_shrink_rate = max(shrinks, default=0.0)
+        observed = {
+            "isr_shrinks_per_sec": shrinks,
+            "isr_expands_per_sec": expands,
+            "max_shrink_rate": max_shrink_rate,
+        }
+        if not shrinks and not expands:
+            severity = "unknown"
+            observed["no_data_reason"] = f"no ISR shrink/expand metrics for broker {broker_id}"
+        else:
+            severity = (
+                "critical" if max_shrink_rate > 0.5 else ("warn" if max_shrink_rate > 0 else "ok")
+            )
         signal = Signal(
             tool="kafka.isr_churn",
             signal_type="isr_churn",
@@ -87,12 +105,8 @@ def build_kafka_tools(
             window_start=now - timedelta(minutes=window_minutes),
             window_end=now,
             scope={"broker_id": str(broker_id)},
-            observed={
-                "isr_shrinks_per_sec": shrinks,
-                "isr_expands_per_sec": expands,
-                "max_shrink_rate": max_shrink_rate,
-            },
-            severity="critical" if max_shrink_rate > 0.5 else ("warn" if max_shrink_rate > 0 else "ok"),
+            observed=observed,
+            severity=severity,
             raw_source_ref=f"jmx:kafka.server:type=ReplicaManager,broker={broker_id}",
         )
         return _record_signal(audit, session_id, collected_signals, signal)
@@ -106,11 +120,28 @@ def build_kafka_tools(
         now = datetime.now(timezone.utc)
         offsets = gateway.consumer_group_offsets(group)
         watermarks = gateway.topic_high_watermarks(topic)
+        # A partition with no committed offset has no measurable lag; treating
+        # the missing offset as 0 would report the whole topic as lag.
         lag_by_partition = {
-            str(pid): watermarks[pid] - offsets.get(pid, 0)
-            for pid in watermarks
+            str(pid): watermarks[pid] - offsets[pid] for pid in watermarks if pid in offsets
         }
+        without_offset = [str(pid) for pid in sorted(watermarks) if pid not in offsets]
         max_lag = max(lag_by_partition.values(), default=0)
+        observed = {
+            "lag_by_partition": lag_by_partition,
+            "max_lag": max_lag,
+            "partitions_without_committed_offset": without_offset,
+        }
+        if not watermarks:
+            severity = "unknown"
+            observed["no_data_reason"] = f"no partitions found for topic {topic!r}"
+        elif not lag_by_partition:
+            severity = "unknown"
+            observed["no_data_reason"] = (
+                f"group {group!r} has no committed offsets on topic {topic!r}"
+            )
+        else:
+            severity = "critical" if max_lag > 10_000 else ("warn" if max_lag > 1_000 else "ok")
         signal = Signal(
             tool="kafka.consumer_lag_trend",
             signal_type="consumer_lag_trend",
@@ -118,8 +149,8 @@ def build_kafka_tools(
             window_start=now,
             window_end=now,
             scope={"group": group, "topic": topic},
-            observed={"lag_by_partition": lag_by_partition, "max_lag": max_lag},
-            severity="critical" if max_lag > 10_000 else ("warn" if max_lag > 1_000 else "ok"),
+            observed=observed,
+            severity=severity,
             raw_source_ref="AdminClient consumer offsets + watermark offsets",
         )
         return _record_signal(audit, session_id, collected_signals, signal)
@@ -133,6 +164,14 @@ def build_kafka_tools(
         history = gateway.consumer_group_state_history(group, window_minutes)
         rebalance_states = {"PreparingRebalance", "CompletingRebalance"}
         rebalance_count = sum(1 for h in history if h.get("state") in rebalance_states)
+        observed = {"state_history": history, "rebalance_count": rebalance_count}
+        if not history:
+            severity = "unknown"
+            observed["no_data_reason"] = f"no state history for consumer group {group!r}"
+        else:
+            severity = (
+                "critical" if rebalance_count > 5 else ("warn" if rebalance_count > 1 else "ok")
+            )
         signal = Signal(
             tool="kafka.rebalance_frequency",
             signal_type="rebalance_frequency",
@@ -140,8 +179,8 @@ def build_kafka_tools(
             window_start=now - timedelta(minutes=window_minutes),
             window_end=now,
             scope={"group": group},
-            observed={"state_history": history, "rebalance_count": rebalance_count},
-            severity="critical" if rebalance_count > 5 else ("warn" if rebalance_count > 1 else "ok"),
+            observed=observed,
+            severity=severity,
             raw_source_ref="AdminClient.describe_consumer_groups",
         )
         return _record_signal(audit, session_id, collected_signals, signal)
@@ -157,6 +196,16 @@ def build_kafka_tools(
         avg = sum(values) / len(values) if values else 0.0
         max_val = max(values, default=0.0)
         skew_ratio = (max_val / avg) if avg > 0 else 0.0
+        observed = {
+            "throughput_by_partition": {str(k): v for k, v in throughput.items()},
+            "avg_throughput": avg,
+            "skew_ratio": skew_ratio,
+        }
+        if not throughput:
+            severity = "unknown"
+            observed["no_data_reason"] = f"no per-partition throughput for topic {topic!r}"
+        else:
+            severity = "critical" if skew_ratio > 5 else ("warn" if skew_ratio > 2 else "ok")
         signal = Signal(
             tool="kafka.hot_partition_skew",
             signal_type="hot_partition_skew",
@@ -164,12 +213,8 @@ def build_kafka_tools(
             window_start=now - timedelta(minutes=window_minutes),
             window_end=now,
             scope={"topic": topic},
-            observed={
-                "throughput_by_partition": {str(k): v for k, v in throughput.items()},
-                "avg_throughput": avg,
-                "skew_ratio": skew_ratio,
-            },
-            severity="critical" if skew_ratio > 5 else ("warn" if skew_ratio > 2 else "ok"),
+            observed=observed,
+            severity=severity,
             raw_source_ref="jmx:kafka_topic_partition_bytesinpersec",
         )
         return _record_signal(audit, session_id, collected_signals, signal)
@@ -181,7 +226,16 @@ def build_kafka_tools(
         incompatible schema change."""
         now = datetime.now(timezone.utc)
         result = gateway.schema_registry_subject(subject)
-        is_compatible = result.get("is_compatible", True) if result else True
+        observed = {"raw": result}
+        if not result or "is_compatible" not in result:
+            # An empty or unrecognized response is no compatibility verdict at
+            # all, not a compatible one.
+            severity = "unknown"
+            observed["is_compatible"] = None
+            observed["no_data_reason"] = f"no compatibility result for subject {subject!r}"
+        else:
+            observed["is_compatible"] = result["is_compatible"]
+            severity = "ok" if result["is_compatible"] else "critical"
         signal = Signal(
             tool="kafka.schema_registry_compat",
             signal_type="schema_registry_compat",
@@ -189,8 +243,8 @@ def build_kafka_tools(
             window_start=now,
             window_end=now,
             scope={"subject": subject},
-            observed={"raw": result, "is_compatible": is_compatible},
-            severity="ok" if is_compatible else "critical",
+            observed=observed,
+            severity=severity,
             raw_source_ref=f"schema-registry:/compatibility/subjects/{subject}/versions/latest",
         )
         return _record_signal(audit, session_id, collected_signals, signal)

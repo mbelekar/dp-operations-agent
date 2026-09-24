@@ -1,6 +1,7 @@
 """Deterministic LineageQueryGateway backed by a JSON snapshot file.
 
-Snapshot shape (missing lookups return an empty graph):
+Snapshot shape (a node_id missing from the snapshot is an unknown node,
+node_found=False; list a known node with nothing upstream as "nodes": []):
 
 {
   "upstream_lineage": {
@@ -27,5 +28,7 @@ class FixtureLineageGateway:
         self._data: dict[str, Any] = json.loads(Path(snapshot_path).read_text())
 
     def upstream_lineage(self, node_id: str, depth: int = 5) -> LineageGraphView:
-        raw = self._data.get("upstream_lineage", {}).get(node_id, {"nodes": []})
+        raw = self._data.get("upstream_lineage", {}).get(node_id)
+        if raw is None:
+            return LineageGraphView(nodes=[], node_found=False)
         return LineageGraphView(**raw)

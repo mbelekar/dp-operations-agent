@@ -1,6 +1,6 @@
 # Lineage module
 
-**Status: Implemented (Phase 2b).** See [`kafka.md`](kafka.md) and [`flink.md`](flink.md) for the two modules this one connects, and [`dbt.md`](dbt.md) for the still-planned Phase 3 module.
+**Status: Implemented (Phase 2b).** See [`kafka.md`](kafka.md) and [`flink.md`](flink.md) for the two modules this one connects, and [`dbt.md`](dbt.md) (Phase 3a) for the dbt module, whose symptoms get traced upstream through this one.
 
 ## What it does
 
@@ -27,7 +27,7 @@ Same pattern as Kafka and Flink: every call goes through the `LineageQueryGatewa
 
 ## Node ID convention
 
-Marquez doesn't dictate a node-naming scheme, so this project picks one and uses it everywhere, gateway implementations, fixtures, and the system prompt all agree on it: a Kafka topic is `dataset:kafka:{topic}`, a Flink job is `job:flink:{job_name}`. Documented once in `tools/lineage/gateway.py`'s module docstring rather than scattered across call sites.
+Marquez doesn't dictate a node-naming scheme, so this project picks one and uses it everywhere, gateway implementations, fixtures, and the system prompt all agree on it: a Kafka topic is `dataset:kafka:{topic}`, a Flink job is `job:flink:{job_name}`, a dbt model is `job:dbt:{model_name}`, and a warehouse table (a dbt source, or a model's output) is `dataset:warehouse:{schema}.{table}`. The dbt tools compute these ids themselves and return them in each signal's `scope.lineage_node_id`, so a dbt symptom can be walked upstream without the model building an id (see [`dbt.md`](dbt.md#node-id-convention)). The live Marquez stack only has Kafka and Flink nodes; dbt nodes exist in fixtures so far. Documented once in `tools/lineage/gateway.py`'s module docstring rather than scattered across call sites.
 
 ## Why `Diagnosis.system` needed a real fix here
 
@@ -40,6 +40,7 @@ dp-ops-agent diagnose \
   --fixture tests/fixtures/kafka/isr_churn_upstream_incident.json \
   --flink-fixture tests/fixtures/flink/watermark_lag_cross_system_incident.json \
   --lineage-fixture tests/fixtures/lineage/flink_job_to_kafka_topic.json \
+  --dbt-fixture tests/fixtures/dbt/healthy_baseline.json \
   --alert-text "PagerDuty: watermark lag alert on orders-processing-job"
 ```
 

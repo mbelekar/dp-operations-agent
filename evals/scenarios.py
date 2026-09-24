@@ -113,4 +113,37 @@ SCENARIOS: list[EvalScenario] = [
             "not just whether the lineage tool returns a graph."
         ),
     ),
+    EvalScenario(
+        name="cross_system_dbt_freshness_to_isr_churn",
+        kafka_fixture_path=KAFKA_FIXTURE_DIR / "isr_churn_upstream_incident.json",
+        flink_fixture_path=FLINK_FIXTURE_DIR / "watermark_lag_cross_system_incident.json",
+        lineage_fixture_path=LINEAGE_FIXTURE_DIR / "warehouse_table_to_kafka_topic.json",
+        dbt_fixture_path=DBT_FIXTURE_DIR / "freshness_failure_upstream_incident.json",
+        alert_text="PagerDuty: dbt source freshness failed for raw.orders_sink",
+        expected_signal_type="isr_churn",
+        description=(
+            "Design.md's three-hop cascade: the alert is a dbt source freshness "
+            "failure, stg_orders' recency test fails and fct_orders' incremental "
+            "row count collapses, but the tests passed last run and no model "
+            "code changed. The correct diagnosis walks lineage from the "
+            "warehouse table through the Flink job (watermark lag) to the Kafka "
+            "topic and cites isr_churn as root cause, not any dbt signal."
+        ),
+    ),
+    EvalScenario(
+        name="dbt_model_logic_regression",
+        kafka_fixture_path=KAFKA_HEALTHY,
+        flink_fixture_path=FLINK_HEALTHY,
+        lineage_fixture_path=LINEAGE_EMPTY,
+        dbt_fixture_path=DBT_FIXTURE_DIR / "model_logic_regression_incident.json",
+        alert_text="PagerDuty: dbt test not_null_fct_orders_amount failed on fct_orders",
+        expected_signal_type="test_failure",
+        description=(
+            "The counter-case to the dbt flagship: the failing test passed last "
+            "run, but fct_orders' own code changed since, and everything "
+            "upstream is healthy. The correct diagnosis cites the dbt "
+            "test_failure itself, catching an agent that has learned \"always "
+            "blame upstream\" instead of the actual rule."
+        ),
+    ),
 ]

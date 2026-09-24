@@ -1,6 +1,6 @@
 # Kafka diagnostic module
 
-**Status: Implemented (Phase 1).** See [`flink.md`](flink.md) (also implemented, Phase 2a) and [`dbt.md`](dbt.md) (planned, Phase 3) for the other modules.
+**Status: Implemented (Phase 1).** See [`flink.md`](flink.md) (Phase 2a), [`lineage.md`](lineage.md) (Phase 2b), and [`dbt.md`](dbt.md) (Phase 3a) for the other modules.
 
 ## What it does
 
@@ -87,6 +87,8 @@ The core safety requirement this module is built around: the agent's reasoning h
 dp-ops-agent diagnose \
   --fixture tests/fixtures/kafka/urp_lag_spike_incident.json \
   --flink-fixture tests/fixtures/flink/healthy_baseline.json \
+  --lineage-fixture tests/fixtures/lineage/empty.json \
+  --dbt-fixture tests/fixtures/dbt/healthy_baseline.json \
   --alert-text "PagerDuty: consumer lag alert on billing-svc/orders"
 ```
 

@@ -1,6 +1,6 @@
 # Flink diagnostic module
 
-**Status: Implemented (Phase 2a).** Cross-system localization is now available too, see [`lineage.md`](lineage.md) (Phase 2b): an alert naming a Flink job can be traced upstream to a Kafka root cause, and the model is instructed to check before concluding a single-system hypothesis. See [`kafka.md`](kafka.md) for the module this one mirrors, and [`dbt.md`](dbt.md) for the still-planned Phase 3 module.
+**Status: Implemented (Phase 2a).** Cross-system localization is now available too, see [`lineage.md`](lineage.md) (Phase 2b): an alert naming a Flink job can be traced upstream to a Kafka root cause, and the model is instructed to check before concluding a single-system hypothesis. See [`kafka.md`](kafka.md) for the module this one mirrors, and [`dbt.md`](dbt.md) (Phase 3a) for the dbt module.
 
 ## What it does
 
@@ -27,7 +27,7 @@ Same pattern as Kafka: every Flink tool talks through the `FlinkMetricsGateway` 
 
 ## Why Kafka, Flink, and lineage tools are all always available
 
-A session's tool list always includes Kafka, Flink, and lineage tools, regardless of which system the alert names. This matters for one reason: `Diagnosis.system` is not set by the caller or asserted by the model. It is derived from the signal the model names as `root_cause_signal_id` in `submit_diagnosis` (see `_derive_system` in `tools/diagnosis_output/tools.py`, and [ADR-0007](decisions/0007-root-cause-signal-id.md)). That only works correctly if every system's tools are genuinely available in every session, a Kafka-only tool list would make `system` trivially always `"kafka"`, and without the lineage tool there'd be no way for a Flink-side alert to ever discover a Kafka root cause in the first place.
+A session's tool list always includes Kafka, Flink, lineage, and (since Phase 3a) dbt tools, regardless of which system the alert names. This matters for one reason: `Diagnosis.system` is not set by the caller or asserted by the model. It is derived from the signal the model names as `root_cause_signal_id` in `submit_diagnosis` (see `_derive_system` in `tools/diagnosis_output/tools.py`, and [ADR-0007](decisions/0007-root-cause-signal-id.md)). That only works correctly if every system's tools are genuinely available in every session, a Kafka-only tool list would make `system` trivially always `"kafka"`, and without the lineage tool there'd be no way for a Flink-side alert to ever discover a Kafka root cause in the first place.
 
 ## Example run
 
@@ -35,6 +35,8 @@ A session's tool list always includes Kafka, Flink, and lineage tools, regardles
 dp-ops-agent diagnose \
   --fixture tests/fixtures/kafka/healthy_baseline.json \
   --flink-fixture tests/fixtures/flink/checkpoint_failure_incident.json \
+  --lineage-fixture tests/fixtures/lineage/empty.json \
+  --dbt-fixture tests/fixtures/dbt/healthy_baseline.json \
   --alert-text "PagerDuty: repeated checkpoint failures on orders-processing-job"
 ```
 

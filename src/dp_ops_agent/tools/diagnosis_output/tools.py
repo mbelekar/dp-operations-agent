@@ -8,7 +8,17 @@ from pydantic import BaseModel, Field
 
 from dp_ops_agent.audit.models import AuditEvent
 from dp_ops_agent.audit.sink import AuditSink
-from dp_ops_agent.evidence.schema import Diagnosis, EvidenceChainEntry, Signal
+from dp_ops_agent.evidence.schema import (
+    Diagnosis,
+    EvidenceChainEntry,
+    Proposal,
+    ReplayKafkaOffsets,
+    RerunDbtModel,
+    RestartFlinkJobFromCheckpoint,
+    Signal,
+    derive_tier,
+)
+from dp_ops_agent.tools.diagnosis_output.proposals import render
 
 
 class _EvidenceChainEntryInput(BaseModel):
@@ -18,6 +28,23 @@ class _EvidenceChainEntryInput(BaseModel):
         "diagnostic tool call earlier in this session."
     )
     interpretation: str
+
+
+class _ProposalInput(BaseModel):
+    """Only what the model chooses. Tier, command preview, rollback step, and
+    warnings are derived in code from the action (ADR-0010)."""
+
+    # A plain union, not schema.ProposedAction's discriminated one: the
+    # Anthropic tool converter inlines the variants but keeps pydantic's
+    # discriminator mapping, which then points at $defs the tool schema no
+    # longer has. Each variant's action_type is a const, so validation still
+    # picks the right one.
+    action: RestartFlinkJobFromCheckpoint | RerunDbtModel | ReplayKafkaOffsets = Field(
+        description="One action from the catalog. Every identifier in it must be one "
+        "you collected a signal about this session, and the action must change the "
+        "root cause's own system."
+    )
+    expected_outcome: str
 
 
 class SubmitDiagnosisInput(BaseModel):
@@ -31,6 +58,25 @@ class SubmitDiagnosisInput(BaseModel):
     )
     confidence: Literal["low", "medium", "high"]
     evidence_chain: list[_EvidenceChainEntryInput]
+    proposal: _ProposalInput | None = Field(
+        default=None,
+        description="Optional Tier 1 remediation. Leave it out (Tier 0) when no catalog "
+        "action fixes the root cause.",
+    )
+
+
+def _build_proposal(proposal: _ProposalInput | None) -> Proposal | None:
+    if proposal is None:
+        return None
+    rendered = render(proposal.action)
+    return Proposal(
+        tier=derive_tier(proposal.action),
+        action=proposal.action,
+        expected_outcome=proposal.expected_outcome,
+        rollback_step=rendered.rollback_step,
+        command=rendered.command,
+        warnings=rendered.warnings,
+    )
 
 
 def _derive_system(root_cause_signal_id: str, collected_signals: list[Signal]) -> str:
@@ -68,6 +114,7 @@ def build_diagnosis_output_tools(
         root_cause_signal_id: str,
         confidence: Literal["low", "medium", "high"],
         evidence_chain: list[_EvidenceChainEntryInput],
+        proposal: _ProposalInput | None = None,
     ) -> str:
         """Conclude the diagnosis. Call this exactly once, after gathering
         sufficient evidence via the diagnostic tools. This is the only way to
@@ -75,8 +122,10 @@ def build_diagnosis_output_tools(
         reply. The signals you collected this session are attached
         automatically; evidence_chain entries must cite a signal_id you
         actually received from a tool call, and root_cause_signal_id must be
-        one of those cited signal_ids."""
+        one of those cited signal_ids. An optional proposal names one catalog
+        action to remediate the root cause; nothing is executed."""
         try:
+            built_proposal = _build_proposal(proposal)
             diagnosis = Diagnosis(
                 session_id=session_id,
                 system=_derive_system(root_cause_signal_id, collected_signals),
@@ -87,6 +136,8 @@ def build_diagnosis_output_tools(
                     EvidenceChainEntry(**e.model_dump()) for e in evidence_chain
                 ],
                 signals=list(collected_signals),
+                tier=built_proposal.tier if built_proposal else 0,
+                proposal=built_proposal,
                 created_at=datetime.now(timezone.utc),
                 model=model_name,
             )
@@ -107,6 +158,23 @@ def build_diagnosis_output_tools(
                 payload=diagnosis.model_dump(mode="json"),
             )
         )
-        return f"Diagnosis {diagnosis.diagnosis_id} recorded."
+        if diagnosis.proposal is None:
+            return f"Diagnosis {diagnosis.diagnosis_id} recorded (Tier 0, no action proposed)."
+        audit.append(
+            AuditEvent(
+                event_type="proposal_created",
+                timestamp=datetime.now(timezone.utc),
+                session_id=session_id,
+                actor="orchestrator",
+                diagnosis_id=diagnosis.diagnosis_id,
+                proposal_id=diagnosis.proposal.proposal_id,
+                tier=diagnosis.proposal.tier,
+                payload=diagnosis.proposal.model_dump(mode="json"),
+            )
+        )
+        return (
+            f"Diagnosis {diagnosis.diagnosis_id} recorded with Tier {diagnosis.proposal.tier} "
+            f"proposal {diagnosis.proposal.proposal_id} (for human review; nothing was executed)."
+        )
 
     return [submit_diagnosis]

@@ -433,3 +433,99 @@ async def test_dbt_flagship_sink_vertex_is_unknown_not_nominal(tmp_path):
     )
     assert "rejected" in submit_result
     assert "diagnosis" not in result_holder
+
+
+# --- Proposals (Phase 3b) -----------------------------------------------------
+
+
+async def _flink_signal_and_tools(tmp_path, session_id: str):
+    tools, result_holder = _build_tools(tmp_path, session_id)
+    cp = json.loads(await tools["checkpoint_failure"].ainvoke({"job_id": "orders-processing-job"}))
+    return tools, result_holder, cp["signal_id"]
+
+
+def _submit_args(signal_id: str, proposal: dict | None) -> dict:
+    args = {
+        "root_cause_hypothesis": "checkpoints are failing",
+        "root_cause_signal_id": signal_id,
+        "confidence": "medium",
+        "evidence_chain": [{"step": 1, "signal_id": signal_id, "interpretation": "checkpoints"}],
+    }
+    if proposal is not None:
+        args["proposal"] = proposal
+    return args
+
+
+@pytest.mark.asyncio
+async def test_grounded_tier1_proposal_is_recorded_with_derived_fields(tmp_path):
+    tools, result_holder, signal_id = await _flink_signal_and_tools(tmp_path, "wiring-proposal")
+
+    result = await tools["submit_diagnosis"].ainvoke(
+        _submit_args(
+            signal_id,
+            {
+                "action": {
+                    "action_type": "restart_flink_job_from_checkpoint",
+                    "job_id": "orders-processing-job",
+                },
+                "expected_outcome": "checkpoints complete again",
+            },
+        )
+    )
+
+    assert "rejected" not in result
+    diagnosis = result_holder["diagnosis"]
+    assert diagnosis.tier == 1
+    assert diagnosis.proposal.tier == 1
+    # Derived in code, not supplied by the model:
+    assert diagnosis.proposal.command.startswith("flink cancel orders-processing-job")
+    assert "checkpoint is not modified" in diagnosis.proposal.rollback_step
+    assert diagnosis.proposal.warnings
+    audit = JsonlAuditSink(tmp_path, "wiring-proposal")
+    [event] = audit.query(event_type="proposal_created")
+    assert event.proposal_id == diagnosis.proposal.proposal_id
+    assert event.tier == 1
+
+
+@pytest.mark.asyncio
+async def test_proposal_on_an_uninvestigated_target_rejects_the_submission(tmp_path):
+    tools, result_holder, signal_id = await _flink_signal_and_tools(tmp_path, "wiring-proposal-bad")
+
+    result = await tools["submit_diagnosis"].ainvoke(
+        _submit_args(
+            signal_id,
+            {
+                "action": {"action_type": "restart_flink_job_from_checkpoint", "job_id": "other-job"},
+                "expected_outcome": "x",
+            },
+        )
+    )
+
+    assert "rejected" in result and "other-job" in result
+    assert "diagnosis" not in result_holder
+    assert JsonlAuditSink(tmp_path, "wiring-proposal-bad").query(event_type="proposal_created") == []
+
+
+@pytest.mark.asyncio
+async def test_no_proposal_is_tier0(tmp_path):
+    tools, result_holder, signal_id = await _flink_signal_and_tools(tmp_path, "wiring-tier0")
+
+    result = await tools["submit_diagnosis"].ainvoke(_submit_args(signal_id, None))
+
+    assert "rejected" not in result
+    assert result_holder["diagnosis"].tier == 0
+    assert result_holder["diagnosis"].proposal is None
+    assert JsonlAuditSink(tmp_path, "wiring-tier0").query(event_type="proposal_created") == []
+
+
+def test_submit_diagnosis_tool_schema_has_no_dangling_refs(tmp_path):
+    """What Anthropic actually receives: the converter inlines $defs, so any
+    leftover "#/$defs/..." (e.g. a discriminator mapping) would dangle."""
+    from langchain_anthropic.chat_models import convert_to_anthropic_tool
+
+    tools, _ = _build_tools(tmp_path, "schema-check")
+    schema = json.dumps(convert_to_anthropic_tool(tools["submit_diagnosis"])["input_schema"])
+
+    assert "#/$defs/" not in schema
+    for action_type in ("restart_flink_job_from_checkpoint", "rerun_dbt_model", "replay_kafka_offsets"):
+        assert action_type in schema

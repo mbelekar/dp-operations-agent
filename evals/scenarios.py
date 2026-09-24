@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from dp_ops_agent.evidence.schema import SignalType
 
@@ -39,11 +40,24 @@ class EvalScenario:
     expected_signal_type: SignalType
     description: str
     dbt_fixture_path: Path = DBT_HEALTHY
+    # Phase 3b: None = the proposal isn't graded; "none" = the correct answer
+    # is Tier 0 (no catalog action fixes this root cause); otherwise the
+    # action_type the diagnosis must propose.
+    expected_action_type: (
+        Literal[
+            "none",
+            "restart_flink_job_from_checkpoint",
+            "rerun_dbt_model",
+            "replay_kafka_offsets",
+        ]
+        | None
+    ) = None
 
 
 SCENARIOS: list[EvalScenario] = [
     EvalScenario(
         name="urp_lag_spike",
+        expected_action_type="none",
         kafka_fixture_path=KAFKA_FIXTURE_DIR / "urp_lag_spike_incident.json",
         flink_fixture_path=FLINK_HEALTHY,
         lineage_fixture_path=LINEAGE_EMPTY,
@@ -85,6 +99,7 @@ SCENARIOS: list[EvalScenario] = [
     ),
     EvalScenario(
         name="flink_checkpoint_failure",
+        expected_action_type="restart_flink_job_from_checkpoint",
         kafka_fixture_path=KAFKA_HEALTHY,
         flink_fixture_path=FLINK_FIXTURE_DIR / "checkpoint_failure_incident.json",
         lineage_fixture_path=LINEAGE_EMPTY,
@@ -98,6 +113,7 @@ SCENARIOS: list[EvalScenario] = [
     ),
     EvalScenario(
         name="cross_system_watermark_lag_to_isr_churn",
+        expected_action_type="none",
         kafka_fixture_path=KAFKA_FIXTURE_DIR / "isr_churn_upstream_incident.json",
         flink_fixture_path=FLINK_FIXTURE_DIR / "watermark_lag_cross_system_incident.json",
         lineage_fixture_path=LINEAGE_FIXTURE_DIR / "flink_job_to_kafka_topic.json",
@@ -115,6 +131,7 @@ SCENARIOS: list[EvalScenario] = [
     ),
     EvalScenario(
         name="cross_system_dbt_freshness_to_isr_churn",
+        expected_action_type="none",
         kafka_fixture_path=KAFKA_FIXTURE_DIR / "isr_churn_upstream_incident.json",
         flink_fixture_path=FLINK_FIXTURE_DIR / "watermark_lag_cross_system_incident.json",
         lineage_fixture_path=LINEAGE_FIXTURE_DIR / "warehouse_table_to_kafka_topic.json",
@@ -132,6 +149,7 @@ SCENARIOS: list[EvalScenario] = [
     ),
     EvalScenario(
         name="dbt_model_logic_regression",
+        expected_action_type="rerun_dbt_model",
         kafka_fixture_path=KAFKA_HEALTHY,
         flink_fixture_path=FLINK_HEALTHY,
         lineage_fixture_path=LINEAGE_EMPTY,

@@ -9,6 +9,7 @@ import typer
 from dotenv import load_dotenv
 
 from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
+from dp_ops_agent.evidence.schema import Proposal
 from dp_ops_agent.orchestrator.session import DiagnosisNotSubmittedError, run_diagnosis
 from dp_ops_agent.tools.dbt.fixture_gateway import FixtureDbtGateway
 from dp_ops_agent.tools.dbt.live_gateway import LiveDbtGateway
@@ -199,7 +200,26 @@ def diagnose(
     typer.echo("\nEvidence chain:")
     for entry in diagnosis.evidence_chain:
         typer.echo(f"  {entry.step}. [{entry.signal_id}] {entry.interpretation}")
+    _echo_proposal(diagnosis.proposal)
     typer.echo(f"\nAudit log: {result.audit_log_path}")
+
+
+def _echo_proposal(proposal: Proposal | None) -> None:
+    """The part a human reviews before anything is run by hand. The command,
+    rollback, and warnings are derived in code, not written by the model."""
+    if proposal is None:
+        typer.echo("\nProposal: none (Tier 0, root cause identified, no action proposed)")
+        return
+    typer.echo(f"\nProposal (Tier {proposal.tier}, for human review; nothing was executed):")
+    typer.echo(f"  Action: {proposal.action.action_type}")
+    typer.echo(f"  Expected outcome: {proposal.expected_outcome}")
+    typer.echo("  Command:")
+    for line in (proposal.command or "").splitlines():
+        typer.echo(f"    {line}")
+    typer.echo(f"  Rollback: {proposal.rollback_step}")
+    typer.echo("  Warnings:")
+    for warning in proposal.warnings:
+        typer.echo(f"    - {warning}")
 
 
 if __name__ == "__main__":

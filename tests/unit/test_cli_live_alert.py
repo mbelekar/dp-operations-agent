@@ -53,3 +53,77 @@ def test_fixture_mode_requires_a_dbt_fixture(tmp_path):
 
     assert result.exit_code == 1
     assert "--dbt-fixture" in result.output
+
+
+def _fixture_args(tmp_path):
+    fixtures = Path(__file__).resolve().parents[1] / "fixtures"
+    return [
+        "diagnose",
+        "--fixture", str(fixtures / "kafka" / "healthy_baseline.json"),
+        "--flink-fixture", str(fixtures / "flink" / "healthy_baseline.json"),
+        "--lineage-fixture", str(fixtures / "lineage" / "empty.json"),
+        "--dbt-fixture", str(fixtures / "dbt" / "healthy_baseline.json"),
+        "--alert-text", "alert",
+        "--log-dir", str(tmp_path),
+    ]
+
+
+def _stub_run(monkeypatch, proposal_input):
+    from datetime import datetime, timezone
+
+    from dp_ops_agent import cli
+    from dp_ops_agent.evidence.schema import Diagnosis, EvidenceChainEntry, Signal
+    from dp_ops_agent.orchestrator.session import DiagnosisRunResult, TokenUsage
+    from dp_ops_agent.tools.diagnosis_output.tools import _build_proposal
+
+    now = datetime.now(timezone.utc)
+    signal = Signal(
+        tool="flink.checkpoint_failure", signal_type="checkpoint_failure", collected_at=now,
+        window_start=now, window_end=now, scope={"job_id": "orders-processing-job"},
+        observed={}, severity="critical",
+    )
+    proposal = _build_proposal(proposal_input)
+    diagnosis = Diagnosis(
+        session_id="s", system="flink", root_cause_hypothesis="checkpoints failing",
+        root_cause_signal_id=signal.signal_id, confidence="high",
+        evidence_chain=[EvidenceChainEntry(step=1, signal_id=signal.signal_id, interpretation="x")],
+        signals=[signal], tier=proposal.tier if proposal else 0, proposal=proposal,
+        created_at=now, model="m",
+    )
+
+    async def fake_run_diagnosis(**kwargs):
+        return DiagnosisRunResult(diagnosis=diagnosis, session_id="s", audit_log_path=None, usage=TokenUsage())
+
+    monkeypatch.setattr(cli, "run_diagnosis", fake_run_diagnosis)
+
+
+def test_diagnose_prints_the_proposal_for_review(tmp_path, monkeypatch):
+    from dp_ops_agent.tools.diagnosis_output.tools import _ProposalInput
+
+    _stub_run(
+        monkeypatch,
+        _ProposalInput(
+            action={"action_type": "restart_flink_job_from_checkpoint", "job_id": "orders-processing-job"},
+            expected_outcome="checkpoints complete again",
+        ),
+    )
+
+    result = CliRunner().invoke(app, _fixture_args(tmp_path))
+
+    assert result.exit_code == 0, result.output
+    out = result.output
+    assert "Proposal (Tier 1, for human review; nothing was executed):" in out
+    assert "Action: restart_flink_job_from_checkpoint" in out
+    assert "flink cancel orders-processing-job" in out
+    assert "Rollback:" in out and "checkpoint is not modified" in out
+    assert "Warnings:" in out and "<latest-completed-checkpoint-path>" in out
+    assert "Expected outcome: checkpoints complete again" in out
+
+
+def test_diagnose_says_when_no_action_is_proposed(tmp_path, monkeypatch):
+    _stub_run(monkeypatch, None)
+
+    result = CliRunner().invoke(app, _fixture_args(tmp_path))
+
+    assert result.exit_code == 0, result.output
+    assert "Proposal: none (Tier 0, root cause identified, no action proposed)" in result.output

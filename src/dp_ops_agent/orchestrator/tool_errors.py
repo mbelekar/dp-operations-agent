@@ -4,7 +4,7 @@ create_agent's built-in ToolNode only turns argument-validation errors into a
 ToolMessage the model can see; any other exception aborts the whole
 diagnosis, discarding every signal already collected. For a backend being
 unreachable or erroring (JMX aggregator, Schema Registry, Flink REST,
-Marquez, the Kafka brokers themselves) that's the wrong trade: one missing
+Marquez, the Kafka brokers themselves, a dbt target/ dir with no artifacts) that's the wrong trade: one missing
 signal shouldn't cost the entire session.
 
 Only BACKEND_ERRORS are converted. Anything else (a KeyError, a pydantic
@@ -27,11 +27,19 @@ from langchain.agents.middleware import (
 
 from dp_ops_agent.audit.models import AuditEvent
 from dp_ops_agent.audit.sink import AuditSink
+from dp_ops_agent.tools.dbt.gateway import DbtArtifactsUnavailable
 
 # TimeoutError: confluent-kafka AdminClient futures (describe_consumer_groups
 # etc.) raise the builtin from .result(timeout=...) when a broker or group
 # coordinator doesn't answer, not KafkaException.
-BACKEND_ERRORS: tuple[type[Exception], ...] = (httpx.HTTPError, KafkaException, TimeoutError)
+# DbtArtifactsUnavailable: dbt's "backend" is a target/ dir; a missing or
+# overwritten artifact is the file-based equivalent of an unreachable API.
+BACKEND_ERRORS: tuple[type[Exception], ...] = (
+    httpx.HTTPError,
+    KafkaException,
+    TimeoutError,
+    DbtArtifactsUnavailable,
+)
 
 _MAX_CONTENT_CHARS = 300
 

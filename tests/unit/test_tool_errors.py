@@ -9,6 +9,7 @@ from dp_ops_agent.orchestrator.tool_errors import (
     build_tool_error_middleware,
     build_tool_retry_middleware,
 )
+from dp_ops_agent.tools.dbt.gateway import DbtArtifactsUnavailable
 
 _REQUEST = httpx.Request("GET", "http://metrics-aggregator:5559/metrics")
 
@@ -40,8 +41,9 @@ async def _run_raising(middleware, exc: Exception):
         KafkaException(KafkaError(KafkaError._TRANSPORT)),
         # AdminClient futures' .result(timeout=...) raise the builtin, not KafkaException.
         TimeoutError(),
+        DbtArtifactsUnavailable("run_results.json not found in dbt target dir /dbt/target"),
     ],
-    ids=["transport", "http-status", "kafka", "admin-future-timeout"],
+    ids=["transport", "http-status", "kafka", "admin-future-timeout", "dbt-artifacts"],
 )
 async def test_backend_error_becomes_error_tool_message_and_is_audited(tmp_path, exc):
     audit = JsonlAuditSink(tmp_path, "s1")

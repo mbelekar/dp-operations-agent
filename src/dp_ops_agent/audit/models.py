@@ -14,6 +14,7 @@ EventType = Literal[
     "signal_collected",
     "tool_error",
     "diagnosis_completed",
+    "session_usage",
     "proposal_created",
     "approval_decision",
     "execution_result",

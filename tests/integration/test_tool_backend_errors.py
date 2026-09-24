@@ -28,6 +28,14 @@ FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 # model, so a class attribute would become a per-instance field.
 _SEEN: list[list[BaseMessage]] = []
 
+# Attached to every scripted reply, so session totals are predictable.
+_USAGE = {
+    "input_tokens": 100,
+    "output_tokens": 10,
+    "total_tokens": 110,
+    "input_token_details": {"cache_read": 60, "cache_creation": 20},
+}
+
 
 class _ScriptedModel(BaseChatModel):
     """Calls hot_partition_skew, then under_replicated_partitions, then
@@ -64,10 +72,16 @@ class _ScriptedModel(BaseChatModel):
                 },
             )
         else:
-            return ChatResult(generations=[ChatGeneration(message=AIMessage(content="Done."))])
+            return ChatResult(
+                generations=[
+                    ChatGeneration(message=AIMessage(content="Done.", usage_metadata=_USAGE))
+                ]
+            )
         name, args = call
         message = AIMessage(
-            content="", tool_calls=[{"name": name, "args": args, "id": f"call-{turn}"}]
+            content="",
+            tool_calls=[{"name": name, "args": args, "id": f"call-{turn}"}],
+            usage_metadata=_USAGE,
         )
         return ChatResult(generations=[ChatGeneration(message=message)])
 
@@ -81,14 +95,17 @@ class _FailingKafkaGateway(FixtureKafkaGateway):
         raise self._exc
 
 
-async def _run(tmp_path, monkeypatch, exc: Exception):
+async def _run(tmp_path, monkeypatch, exc: Exception, fail: bool = True):
     _SEEN.clear()
     monkeypatch.setattr(session, "ChatAnthropic", lambda model: _ScriptedModel())
     audit = JsonlAuditSink(tmp_path, "s1")
+    kafka_fixture = FIXTURES / "kafka" / "urp_lag_spike_incident.json"
     result = await run_diagnosis(
         session_id="s1",
         alert_text="consumer lag alert on orders",
-        kafka_gateway=_FailingKafkaGateway(FIXTURES / "kafka" / "urp_lag_spike_incident.json", exc),
+        kafka_gateway=(
+            _FailingKafkaGateway(kafka_fixture, exc) if fail else FixtureKafkaGateway(kafka_fixture)
+        ),
         flink_gateway=FixtureFlinkGateway(FIXTURES / "flink" / "healthy_baseline.json"),
         lineage_gateway=FixtureLineageGateway(FIXTURES / "lineage" / "empty.json"),
         dbt_gateway=FixtureDbtGateway(FIXTURES / "dbt" / "healthy_baseline.json"),
@@ -124,3 +141,39 @@ async def test_backend_error_is_reported_to_model_and_diagnosis_completes(tmp_pa
 async def test_non_backend_error_still_aborts_the_session(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="real bug"):
         await _run(tmp_path, monkeypatch, ValueError("real bug"))
+
+
+@pytest.mark.asyncio
+async def test_session_token_usage_is_totalled_and_audited(tmp_path, monkeypatch):
+    exc = httpx.ConnectError("refused", request=httpx.Request("GET", "http://x"))
+
+    result, audit = await _run(tmp_path, monkeypatch, exc)
+
+    # Four model replies (three tool calls, then "Done."), each with _USAGE.
+    expected = {
+        "input_tokens": 400,
+        "output_tokens": 40,
+        "cache_read_tokens": 240,
+        "cache_creation_tokens": 80,
+        "model_calls": 4,
+    }
+    assert result.usage.model_dump() == expected
+    [event] = audit.query(event_type="session_usage")
+    assert event.payload == expected
+
+
+@pytest.mark.asyncio
+async def test_agent_is_built_with_prompt_caching(tmp_path, monkeypatch):
+    from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
+
+    built = {}
+    real_create_agent = session.create_agent
+
+    def capture(**kwargs):
+        built.update(kwargs)
+        return real_create_agent(**kwargs)
+
+    monkeypatch.setattr(session, "create_agent", capture)
+    await _run(tmp_path, monkeypatch, ValueError("unused"), fail=False)
+
+    assert any(isinstance(m, AnthropicPromptCachingMiddleware) for m in built["middleware"])

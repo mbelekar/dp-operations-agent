@@ -4,8 +4,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from langchain_anthropic import ChatAnthropic
+from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
 from langchain.agents import create_agent
+from langchain_core.messages import AIMessage
 from langgraph.errors import GraphRecursionError
+from pydantic import BaseModel
 
 from dp_ops_agent.audit.models import AuditEvent
 from dp_ops_agent.audit.sink import AuditSink
@@ -26,11 +29,39 @@ class DiagnosisNotSubmittedError(RuntimeError):
     """Raised when the session ends without a call to submit_diagnosis."""
 
 
+class TokenUsage(BaseModel):
+    """Summed over every model reply in a session. input_tokens includes the
+    cached portions; cache_read_tokens is what prompt caching saved being
+    billed at the full input rate."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
+    model_calls: int = 0
+
+
+def _total_usage(messages: list) -> TokenUsage:
+    usage = TokenUsage()
+    for message in messages:
+        if not isinstance(message, AIMessage) or not message.usage_metadata:
+            continue
+        meta = message.usage_metadata
+        details = meta.get("input_token_details") or {}
+        usage.input_tokens += meta.get("input_tokens", 0)
+        usage.output_tokens += meta.get("output_tokens", 0)
+        usage.cache_read_tokens += details.get("cache_read", 0) or 0
+        usage.cache_creation_tokens += details.get("cache_creation", 0) or 0
+        usage.model_calls += 1
+    return usage
+
+
 @dataclass
 class DiagnosisRunResult:
     diagnosis: Diagnosis
     session_id: str
     audit_log_path: str | None
+    usage: TokenUsage
 
 
 async def run_diagnosis(
@@ -78,11 +109,18 @@ async def run_diagnosis(
         middleware=[
             build_tool_error_middleware(audit, session_id),
             build_tool_retry_middleware(),
+            # Caches the system prompt, tool definitions, and conversation so
+            # far across the session's model calls. It wraps model calls, not
+            # tool calls, so its position relative to the two above doesn't
+            # matter.
+            AnthropicPromptCachingMiddleware(),
         ],
     )
 
     try:
-        await agent.ainvoke(
+        # A session that hits the recursion limit raises out of here before
+        # its usage is totalled below, so its tokens aren't recorded.
+        final_state = await agent.ainvoke(
             {"messages": [{"role": "user", "content": alert_text}]},
             {
                 "recursion_limit": 50,
@@ -100,6 +138,17 @@ async def run_diagnosis(
             "calling submit_diagnosis"
         ) from exc
 
+    usage = _total_usage(final_state["messages"])
+    audit.append(
+        AuditEvent(
+            event_type="session_usage",
+            timestamp=datetime.now(timezone.utc),
+            session_id=session_id,
+            actor="orchestrator",
+            payload=usage.model_dump(),
+        )
+    )
+
     if "diagnosis" not in result_holder:
         raise DiagnosisNotSubmittedError(
             f"Session {session_id} ended without calling submit_diagnosis"
@@ -110,4 +159,5 @@ async def run_diagnosis(
         diagnosis=result_holder["diagnosis"],
         session_id=session_id,
         audit_log_path=str(audit_path) if audit_path else None,
+        usage=usage,
     )

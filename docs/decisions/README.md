@@ -10,3 +10,4 @@ Short records of decisions that shaped this codebase: what was chosen, what was 
 - [ADR-0006: `Diagnosis.system` is derived from cited evidence, not asserted](0006-diagnosis-system-derived-not-asserted.md)
 - [ADR-0007: `submit_diagnosis` requires an explicit `root_cause_signal_id`](0007-root-cause-signal-id.md)
 - [ADR-0008: dbt's "previous run" is its `--state` directory, and column shapes come from `catalog.json`](0008-dbt-previous-run-via-state-dir.md)
+- [ADR-0009: A tool that finds no data reports severity `unknown`, not `ok`](0009-no-data-is-unknown-not-ok.md)

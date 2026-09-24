@@ -18,12 +18,14 @@ Given an incident alert naming a Flink job (e.g. "repeated checkpoint failures o
 
 One signal is weaker than the other four, worth knowing before trusting it. Flink's REST API has no dedicated field for "savepoint restore failure", there is no clean status check the way `checkpoint_failure` has `counts.failed`. It is inferred from the job's exception history (`GET /jobs/:id/exceptions`), matching exception text against a small keyword list (`savepoint`, `incompatible state`, `state schema`). This is a heuristic, not a structured signal, and it is documented as such in the tool's own docstring, not just here.
 
+A tool that finds no data for the job or vertex it was given (no watermark metrics, no backpressure samples, no `disk_used_ratio`, no checkpoints recorded) reports severity `unknown` with an `observed.no_data_reason`, never `ok`, so querying the wrong vertex can't read as a healthy one. `savepoint_restore_failure` is the exception: for a job that exists, an empty exception history really is healthy. See [ADR-0009](decisions/0009-no-data-is-unknown-not-ok.md).
+
 ## The gateway abstraction: one seam, two implementations
 
 Same pattern as Kafka: every Flink tool talks through the `FlinkMetricsGateway` Protocol (`tools/flink/gateway.py`), never calling the Flink REST API directly.
 
 - **`LiveFlinkGateway`** (`tools/flink/live_gateway.py`): the real implementation. Uses `httpx` against the Flink JobManager REST API (`/jobs/:id/checkpoints`, `/jobs/:id/vertices/:id/backpressure`, `/jobs/:id/vertices/:id/metrics`, `/jobs/:id/exceptions`). All four endpoints were verified against Flink's real REST API docs before writing this module, and later against a real running job, see [`docs/docker.md`](docker.md). Backpressure's field names came back exactly as assumed. The watermark metric's naming convention turned out to include an operator-name segment that wasn't anticipated (`<subtask>.<operatorName>.currentInputWatermark`, not the bare `<subtask>.currentInputWatermark` originally assumed), which is harmless for the current single-vertex topology but is a known rough edge for a vertex chaining multiple operators. Flagged in the file's own docstring.
-- **`FixtureFlinkGateway`** (`tools/flink/fixture_gateway.py`): loads a JSON snapshot, same contract as `FixtureKafkaGateway`. Deterministic responses, safe empty defaults for anything not in the snapshot.
+- **`FixtureFlinkGateway`** (`tools/flink/fixture_gateway.py`): loads a JSON snapshot, same contract as `FixtureKafkaGateway`. Deterministic responses; anything not in the snapshot comes back empty (a missing vertex's backpressure is `status: "not_found"`, not a made-up `"ok"`), which the tools report as severity `unknown`.
 
 ## Why Kafka, Flink, and lineage tools are all always available
 

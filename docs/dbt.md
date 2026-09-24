@@ -28,8 +28,8 @@ Every signal carries, in its `scope`, the `lineage_node_id` to pass to `walk_lin
 
 Two signals are weaker than the rest, worth knowing before trusting them:
 
-- **`incremental_model_drift` is a heuristic.** The honest version of "row count vs. expected" needs a warehouse query; this compares only what dbt artifacts record. `rows_affected` is adapter-specific: dbt-postgres reports it, dbt-duckdb doesn't (then `rows_affected_available: false`, severity `ok`). And an incremental model's first full build reports every row (`code: SELECT`, 1000 rows on dbt-postgres) while later incremental runs report only the new ones (`code: INSERT`, 10 rows), so runs whose adapter `code` differs are reported `comparable: false` with severity `ok` rather than as a false 99% drop. Thresholds: `warn` below 50% of the previous run, `critical` below 10%.
-- **`dependency_graph_compile_error` needs `catalog.json`**, which only exists if `dbt docs generate` ran. Without it the tool reports `catalog_available: false` rather than guessing. Column shapes come from the catalog, not `manifest.json`: a manifest's `columns` list only what someone documented in YAML, so an undocumented column would silently look unchanged. See [ADR-0008](decisions/0008-dbt-previous-run-via-state-dir.md).
+- **`incremental_model_drift` is a heuristic.** The honest version of "row count vs. expected" needs a warehouse query; this compares only what dbt artifacts record. `rows_affected` is adapter-specific: dbt-postgres reports it, dbt-duckdb doesn't (then `rows_affected_available: false`, severity `unknown`). And an incremental model's first full build reports every row (`code: SELECT`, 1000 rows on dbt-postgres) while later incremental runs report only the new ones (`code: INSERT`, 10 rows), so runs whose adapter `code` differs are reported `comparable: false` with severity `unknown` rather than as a false 99% drop. Thresholds: `warn` below 50% of the previous run, `critical` below 10%.
+- **`dependency_graph_compile_error` needs `catalog.json`**, which only exists if `dbt docs generate` ran. Without it the tool reports `catalog_available: false`, severity `unknown`, rather than guessing. Column shapes come from the catalog, not `manifest.json`: a manifest's `columns` list only what someone documented in YAML, so an undocumented column would silently look unchanged. See [ADR-0008](decisions/0008-dbt-previous-run-via-state-dir.md).
 
 ## The gateway abstraction: one seam, two implementations
 
@@ -42,7 +42,9 @@ Missing artifacts follow one rule set in both implementations:
 
 - The current run's `run_results.json`, `manifest.json`, or `sources.json` missing raises `DbtArtifactsUnavailable`. That's one of the backend errors the tool-error middleware turns into a tool error the model sees (see [`docker.md`](docker.md#backend-failures-during-a-diagnosis)), so the session carries on without that signal.
 - Anything missing from the previous run means there is no previous run: `previously_passed` and `model_code_changed` come back `null`.
-- A missing `catalog.json`, in either run, is reported as unavailable, not an error.
+- A missing `catalog.json`, in either run, is reported as unavailable (severity `unknown`), not an error.
+
+More generally, whenever a tool has nothing to judge (an unknown model or source, no test on the model ran, a model missing from the latest run, a source with no freshness result, no row counts to compare) it reports severity `unknown` with an `observed.no_data_reason`, never `ok`. See [ADR-0009](decisions/0009-no-data-is-unknown-not-ok.md).
 
 ## Running dbt so its artifacts are usable
 

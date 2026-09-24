@@ -64,11 +64,19 @@ $ export LANGSMITH_API_KEY=ls__...
 $ ./auto/test
 ```
 
-156/156 offline tests pass with no live dependency (Kafka, Flink, Marquez, dbt, or Anthropic). Args pass through, so `./auto/test -m llm` also runs the full loop against a live model.
+167/167 offline tests pass with no live dependency (Kafka, Flink, Marquez, dbt, or Anthropic). Args pass through, so `./auto/test -m llm` also runs the full loop against a live model.
 
 This suite checks code correctness, not agent evaluation. It checks that each tool computes the right severity for known fixture data, and that the grounding validator rejects an ungrounded or empty evidence chain. Even the live-model test only checks structural properties (a tool was called, the evidence chain is grounded), not whether the diagnosis is actually correct.
 
-A separate eval suite checks that. `./auto/eval` runs the agent against eight labeled incident scenarios (four Kafka, one Flink, one dbt, and two cross-system: Flink to Kafka, and dbt through Flink to Kafka) on a live model, and grades each one, checking whether the correct root-cause signal type was cited in the evidence chain. This is a starting point: eight scenarios, single-shot grading, no LLM-as-judge yet.
+A separate eval suite checks that. `./auto/eval` runs the agent against eight labeled incident scenarios (four Kafka, one Flink, one dbt, and two cross-system: Flink to Kafka, and dbt through Flink to Kafka) on a live model, and grades each one, checking whether the correct root-cause signal type was cited in the evidence chain. This is a starting point: eight scenarios, deterministic grading, no LLM-as-judge yet.
+
+Every scenario run is a billed session, so run only what a change can affect, and each run reports its token usage (also recorded per session as a `session_usage` audit event; prompt caching is on, so most input is billed at the cached rate):
+
+```
+$ ./auto/eval --scenario cross_system_dbt_freshness_to_isr_churn --repeat 2
+```
+
+`--scenario` can be given several times (default: all eight). `--repeat` runs each one up to twice. Results vary run to run, and one run can't tell a scenario that passes 75% of the time from one that always does: a failed run out of two is a real sign a scenario is unreliable, but 2/2 is not proof that it is reliable.
 
 #### Diagnose an incident:
 

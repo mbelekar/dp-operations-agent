@@ -97,3 +97,4 @@ Against live dbt artifacts instead of a fixture, add `--live` with `--dbt-target
 - No dbt project in the Docker live stack: the `app` service's dbt tools report artifacts unavailable (see [`docker.md`](docker.md#known-gaps)).
 - No dbt Cloud API client, and no warehouse queries (real row counts for drift would need one).
 - dbt nodes aren't emitted to Marquez; the lineage between dbt and the rest of the stack exists only in fixtures so far.
+- **The flagship scenario doesn't pass every run.** Sometimes the model follows lineage to the Flink job, finds the critical watermark lag, and stops there, naming `watermark_lag` as the root cause without ever checking `isr_churn` on the topic's brokers. It passed 3 of 4 runs after the retry-scope fix in ADR-0009. A prompt rule that a symptom signal can't be the root cause while the upstream system's health tools are unchecked is the likely fix. It's deferred because judging it needs repeated billed runs.

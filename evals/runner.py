@@ -1,9 +1,15 @@
 """Runs the eval scenario suite against a live model. Always makes real,
-billed Anthropic API calls, one per scenario, since evaluating the agent's
-own reasoning is the entire point; nothing here can be faked with a fixture.
+billed Anthropic API calls, one session per scenario run, since evaluating
+the agent's own reasoning is the entire point; nothing here can be faked
+with a fixture.
 
     $ ./auto/eval
     $ ./auto/eval --model claude-sonnet-5
+    $ ./auto/eval --scenario dbt_model_logic_regression --repeat 2
+
+Run only the scenarios a change can affect (--scenario, repeatable): most
+changes don't touch most scenarios, and each run is billed. --repeat 2 runs
+each one twice; see print_report for what that can and can't tell you.
 """
 
 from __future__ import annotations
@@ -19,7 +25,11 @@ from uuid import uuid4
 from dotenv import load_dotenv
 
 from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
-from dp_ops_agent.orchestrator.session import DiagnosisNotSubmittedError, run_diagnosis
+from dp_ops_agent.orchestrator.session import (
+    DiagnosisNotSubmittedError,
+    TokenUsage,
+    run_diagnosis,
+)
 from dp_ops_agent.tools.dbt.fixture_gateway import FixtureDbtGateway
 from dp_ops_agent.tools.flink.fixture_gateway import FixtureFlinkGateway
 from dp_ops_agent.tools.kafka.fixture_gateway import FixtureKafkaGateway
@@ -29,6 +39,8 @@ from evals.scenarios import SCENARIOS, EvalScenario
 
 load_dotenv()
 
+MAX_REPEAT = 2
+
 
 @dataclass
 class EvalRunResult:
@@ -37,6 +49,13 @@ class EvalRunResult:
     duration_seconds: float
     session_id: str
     error: str | None = None
+    # None when the session recorded no usage (e.g. it hit the recursion limit).
+    usage: TokenUsage | None = None
+
+
+def _recorded_usage(audit: JsonlAuditSink) -> TokenUsage | None:
+    events = audit.query(event_type="session_usage")
+    return TokenUsage(**events[-1].payload) if events else None
 
 
 async def run_scenario(
@@ -68,6 +87,7 @@ async def run_scenario(
             duration_seconds=time.monotonic() - start,
             session_id=session_id,
             error=str(exc),
+            usage=_recorded_usage(audit),
         )
 
     return EvalRunResult(
@@ -75,35 +95,120 @@ async def run_scenario(
         grade=grade(result.diagnosis, scenario),
         duration_seconds=time.monotonic() - start,
         session_id=session_id,
+        usage=result.usage,
     )
 
 
-async def run_all(scenarios: list[EvalScenario], model: str) -> list[EvalRunResult]:
-    return [await run_scenario(scenario, model) for scenario in scenarios]
+def select_scenarios(names: list[str] | None) -> list[EvalScenario]:
+    if not names:
+        return list(SCENARIOS)
+    by_name = {s.name: s for s in SCENARIOS}
+    unknown = [n for n in names if n not in by_name]
+    if unknown:
+        raise ValueError(
+            f"unknown scenario(s) {unknown}; valid names: {', '.join(by_name)}"
+        )
+    return [by_name[n] for n in names]
 
 
-def _print_report(results: list[EvalRunResult]) -> bool:
-    print(f"{'scenario':<22} {'result':<6} {'time':>6}  reason")
-    print("-" * 90)
+async def run_all(
+    scenarios: list[EvalScenario], model: str, repeat: int = 1
+) -> list[EvalRunResult]:
+    return [
+        await run_scenario(scenario, model)
+        for scenario in scenarios
+        for _ in range(repeat)
+    ]
+
+
+def print_report(results: list[EvalRunResult], repeat: int = 1) -> bool:
+    """One line per scenario: passes out of runs, time, tokens, and the
+    reason for any failed run. Returns whether every run passed."""
+    by_scenario: dict[str, list[EvalRunResult]] = {}
     for r in results:
-        status = "PASS" if r.grade.passed else "FAIL"
-        print(f"{r.scenario.name:<22} {status:<6} {r.duration_seconds:5.1f}s  {r.grade.reason}")
+        by_scenario.setdefault(r.scenario.name, []).append(r)
 
-    passed_count = sum(1 for r in results if r.grade.passed)
-    print("-" * 90)
-    print(f"{passed_count}/{len(results)} passed")
-    return passed_count == len(results)
+    width = max([len("scenario"), *(len(name) for name in by_scenario)])
+    print(f"{'scenario':<{width}}  {'passed':>6}  {'time':>7}  tokens")
+    print("-" * (width + 60))
+    total = TokenUsage()
+    unrecorded = 0
+    for name, runs in by_scenario.items():
+        passed = sum(r.grade.passed for r in runs)
+        seconds = sum(r.duration_seconds for r in runs)
+        usage = TokenUsage()
+        for r in runs:
+            if r.usage is None:
+                unrecorded += 1
+                continue
+            for field in TokenUsage.model_fields:
+                setattr(usage, field, getattr(usage, field) + getattr(r.usage, field))
+                setattr(total, field, getattr(total, field) + getattr(r.usage, field))
+        print(
+            f"{name:<{width}}  {passed}/{len(runs):<4}  {seconds:6.1f}s  {_tokens(usage)}"
+        )
+        for r in runs:
+            if not r.grade.passed:
+                print(f"{'':<{width}}    FAIL: {r.grade.reason}")
+
+    passed_runs = sum(r.grade.passed for r in results)
+    print("-" * (width + 60))
+    print(f"{passed_runs}/{len(results)} runs passed; total tokens: {_tokens(total)}")
+    if unrecorded:
+        print(f"{unrecorded} session(s) without recorded usage (not in the token totals)")
+    if repeat > 1:
+        print(
+            f"Note: {repeat}/{repeat} is not proof a scenario is reliable (one that passes "
+            "75% of the time still passes both runs more than half the time); a failed "
+            "run is a real sign it isn't."
+        )
+    return passed_runs == len(results)
+
+
+def _tokens(usage: TokenUsage) -> str:
+    return (
+        f"in={usage.input_tokens:,} (cached={usage.cache_read_tokens:,}, "
+        f"cache-write={usage.cache_creation_tokens:,}) out={usage.output_tokens:,}"
+    )
+
+
+def _repeat(value: str) -> int:
+    n = int(value)
+    if not 1 <= n <= MAX_REPEAT:
+        raise argparse.ArgumentTypeError(f"--repeat must be between 1 and {MAX_REPEAT}")
+    return n
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run the agent eval scenario suite against a live model (billed)."
+    )
+    parser.add_argument("--model", default=os.environ.get("CLAUDE_MODEL", "claude-sonnet-5"))
+    parser.add_argument(
+        "--scenario",
+        action="append",
+        dest="scenarios",
+        metavar="NAME",
+        help="Run only this scenario; repeat the flag for several. Default: all.",
+    )
+    parser.add_argument(
+        "--repeat",
+        type=_repeat,
+        default=1,
+        help=f"Run each scenario this many times (1-{MAX_REPEAT}). Default: 1.",
+    )
+    return parser.parse_args(argv)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Run the agent eval scenario suite against a live model."
-    )
-    parser.add_argument("--model", default=os.environ.get("CLAUDE_MODEL", "claude-sonnet-5"))
-    args = parser.parse_args()
+    args = parse_args()
+    try:
+        scenarios = select_scenarios(args.scenarios)
+    except ValueError as exc:
+        sys.exit(str(exc))
 
-    results = asyncio.run(run_all(SCENARIOS, args.model))
-    all_passed = _print_report(results)
+    results = asyncio.run(run_all(scenarios, args.model, args.repeat))
+    all_passed = print_report(results, args.repeat)
     sys.exit(0 if all_passed else 1)
 
 

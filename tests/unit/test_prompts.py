@@ -24,3 +24,11 @@ def test_session_prompt_states_the_dbt_upstream_rule_and_node_ids():
     assert "lineage_node_id" in prompt
     assert '"job:dbt:{model_name}"' in prompt
     assert '"dataset:warehouse:{schema}.{table}"' in prompt
+
+
+def test_session_prompt_says_unknown_severity_is_not_health():
+    prompt = render_system_prompt(phase=3)
+
+    assert 'severity "unknown"' in prompt
+    assert "no_data_reason" in prompt
+    assert "not evidence" in prompt

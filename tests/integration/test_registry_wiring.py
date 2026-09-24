@@ -391,3 +391,43 @@ async def test_dbt_model_logic_regression_fixture_roots_in_dbt(tmp_path):
 
     assert "rejected" not in submit_result
     assert result_holder["diagnosis"].system == "dbt"
+
+
+@pytest.mark.asyncio
+async def test_dbt_flagship_sink_vertex_is_unknown_not_nominal(tmp_path):
+    """Regression for the 2026-09-24 eval run: coming from the dbt side, the
+    model queried Flink vertex "sink", which the fixture has no data for. All
+    three tools reported "ok" and the diagnosis called Flink "nominal", while
+    watermark lag on vertex "source" is critical. No data must read as
+    unknown, and can't be what a diagnosis rests on."""
+    tools, result_holder = _build_tools(
+        tmp_path,
+        "wiring-no-data",
+        kafka_fixture=FLAGSHIP_KAFKA_FIXTURE,
+        flink_fixture=FLAGSHIP_FLINK_FIXTURE,
+        lineage_fixture=FIXTURES / "lineage" / "warehouse_table_to_kafka_topic.json",
+        dbt_fixture=FIXTURES / "dbt" / "freshness_failure_upstream_incident.json",
+    )
+    sink = {"job_id": "orders-processing-job", "vertex_id": "sink"}
+
+    for tool in ("watermark_lag", "backpressure_ratio", "state_backend_disk_pressure"):
+        result = json.loads(await tools[tool].ainvoke(sink))
+        assert result["severity"] == "unknown", tool
+    source_watermark = json.loads(
+        await tools["watermark_lag"].ainvoke({**sink, "vertex_id": "source"})
+    )
+    assert source_watermark["severity"] == "critical"
+
+    sink_watermark = json.loads(await tools["watermark_lag"].ainvoke(sink))
+    submit_result = await tools["submit_diagnosis"].ainvoke(
+        {
+            "root_cause_hypothesis": "Flink sink watermark is fine",
+            "root_cause_signal_id": sink_watermark["signal_id"],
+            "confidence": "low",
+            "evidence_chain": [
+                {"step": 1, "signal_id": sink_watermark["signal_id"], "interpretation": "nominal"}
+            ],
+        }
+    )
+    assert "rejected" in submit_result
+    assert "diagnosis" not in result_holder

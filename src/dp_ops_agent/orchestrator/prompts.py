@@ -103,17 +103,25 @@ a single system (e.g. broker ISR churn -> under-replicated partitions -> \
 consumer lag, or backpressure -> checkpoint failure) and, per rules 2 and 3, \
 across systems via lineage. Prefer the earliest link in the chain as the \
 root cause, not the most visible symptom.
-5. Every entry in evidence_chain must reference the signal_id of a signal \
+5. A tool result with severity "unknown" means the tool found no data for \
+the identifiers you gave it (an unknown vertex, topic, group, model, or \
+lineage node, or data the backend doesn't report); its no_data_reason says \
+what was missing. It is not evidence that anything is healthy: never cite it \
+as ruling something out. Retry with other identifiers where that makes sense \
+(e.g. another vertex_id of the same job), or treat it as a gap in the \
+evidence and say so.
+6. Every entry in evidence_chain must reference the signal_id of a signal \
 actually returned by a tool call earlier in this session. Do not invent or \
 guess a signal_id.
-6. Conclude only by calling submit_diagnosis exactly once with your full \
+7. Conclude only by calling submit_diagnosis exactly once with your full \
 hypothesis, root_cause_signal_id, confidence level, and evidence chain. \
 root_cause_signal_id must be the signal_id of the one signal your hypothesis \
 actually rests on, and must also appear in evidence_chain, not just any \
-signal you happened to collect. Do not describe your conclusion in a \
+signal you happened to collect; it cannot be a signal with severity \
+"unknown". Do not describe your conclusion in a \
 plain-text reply instead of calling the tool — an unsubmitted diagnosis does \
 not count as complete.
-7. You do not have a proposal or execution tool in this phase. Do not \
+8. You do not have a proposal or execution tool in this phase. Do not \
 suggest specific remediation commands to run; state the root cause and let \
 a later phase handle remediation.
 """

@@ -5,7 +5,9 @@ gateway's "state" run) wherever that comparison is what separates "the
 model's logic is wrong" from "the model is correct but its inputs are bad":
 model_code_changed is decided the way dbt's own state:modified decides it
 (the manifest checksum differs), never inferred by the model. With no
-previous run, those fields are None, meaning unknown, not False.
+previous run, those fields are None, meaning unknown, not False. Likewise a
+tool that has nothing to judge (an unknown model, no catalog, no row counts)
+reports severity "unknown" with a no_data_reason, never "ok" (ADR-0009).
 
 Every signal's scope carries the lineage_node_id to hand to
 walk_lineage_upstream (see tools/lineage/gateway.py for the convention), so
@@ -134,7 +136,11 @@ def build_dbt_tools(
 
     def _model_not_found(name: str, model: str) -> str:
         return _signal(
-            name, {"model": model}, {"model_found": False}, "ok", "dbt:target/manifest.json"
+            name,
+            {"model": model},
+            {"model_found": False, "no_data_reason": f"no dbt model named {model!r} in the manifest"},
+            "unknown",
+            "dbt:target/manifest.json",
         )
 
     @tool
@@ -188,16 +194,24 @@ def build_dbt_tools(
         else:
             all_failing_previously_passed = all(previously_passed)
 
+        no_data_reason = None
         if failing:
             severity: Severity = "critical"
         elif warning:
             severity = "warn"
-        else:
+        elif passing:
             severity = "ok"
+        else:
+            severity = "unknown"
+            no_data_reason = (
+                f"no test on {model!r} ran in the latest run "
+                f"({len(not_run)} not run, {len(skipped)} skipped)"
+            )
         return _signal(
             "test_failure",
             {"model": model, "lineage_node_id": _lineage_node_id(node)},
             {
+                **({"no_data_reason": no_data_reason} if no_data_reason else {}),
                 "model_code_changed": _code_changed(node, state_manifest),
                 "failing_tests": failing,
                 "warning_tests": warning,
@@ -232,12 +246,19 @@ def build_dbt_tools(
             severity: Severity = "critical"
         elif status == "skipped":
             severity = "warn"
+        elif status == "not_run":
+            severity = "unknown"
         else:
             severity = "ok"
         return _signal(
             "model_run_failure",
             {"model": model, "lineage_node_id": _lineage_node_id(node)},
             {
+                **(
+                    {"no_data_reason": f"{model!r} is not in the latest run's results"}
+                    if status == "not_run"
+                    else {}
+                ),
                 "status": status,
                 "message": result.message if result is not None else None,
                 "previous_status": _status(gateway.run_results("state"), node.unique_id),
@@ -269,8 +290,11 @@ def build_dbt_tools(
             return _signal(
                 "freshness_check_failure",
                 {"source": source},
-                {"source_found": False},
-                "ok",
+                {
+                    "source_found": False,
+                    "no_data_reason": f"no dbt source named {source!r} in the manifest",
+                },
+                "unknown",
                 "dbt:target/manifest.json",
             )
         freshness = gateway.source_freshness("current")
@@ -281,12 +305,19 @@ def build_dbt_tools(
             severity: Severity = "critical"
         elif status == "warn":
             severity = "warn"
+        elif status == "not_checked":
+            severity = "unknown"
         else:
             severity = "ok"
         return _signal(
             "freshness_check_failure",
             {"source": source, "lineage_node_id": _lineage_node_id(node)},
             {
+                **(
+                    {"no_data_reason": f"`dbt source freshness` has no result for {source!r}"}
+                    if status == "not_checked"
+                    else {}
+                ),
                 "status": status,
                 "max_loaded_at": result.max_loaded_at if result is not None else None,
                 "age_seconds": result.age_seconds if result is not None else None,
@@ -326,15 +357,31 @@ def build_dbt_tools(
         ratio = current_rows / previous_rows if comparable and previous_rows else None
 
         severity: Severity = "ok"
-        if node.materialized == "incremental" and ratio is not None:
-            if ratio < _DRIFT_CRITICAL_RATIO:
+        no_data_reason = None
+        if node.materialized == "incremental":
+            if not rows_available:
+                no_data_reason = (
+                    "rows_affected missing for the current or previous run (no previous "
+                    "run, or the adapter doesn't report it)"
+                )
+            elif not comparable:
+                no_data_reason = (
+                    f"runs aren't comparable: adapter code {previous_code!r} previously, "
+                    f"{current_code!r} now (e.g. the initial full build vs. an incremental run)"
+                )
+            elif ratio is None:
+                no_data_reason = "previous run affected 0 rows, so there's no ratio"
+            elif ratio < _DRIFT_CRITICAL_RATIO:
                 severity = "critical"
             elif ratio < _DRIFT_WARN_RATIO:
                 severity = "warn"
+            if no_data_reason:
+                severity = "unknown"
         return _signal(
             "incremental_model_drift",
             {"model": model, "lineage_node_id": _lineage_node_id(node)},
             {
+                **({"no_data_reason": no_data_reason} if no_data_reason else {}),
                 "materialized": node.materialized,
                 "current_rows_affected": current_rows,
                 "previous_rows_affected": previous_rows,
@@ -396,16 +443,27 @@ def build_dbt_tools(
                         }
                     )
 
+        no_data_reason = None
         if changed_parents and model_status == "error":
             severity: Severity = "critical"
         elif changed_parents:
             severity = "warn"
+        elif not catalog_available:
+            severity = "unknown"
+            no_data_reason = (
+                "catalog.json missing for the current or previous run "
+                "(`dbt docs generate` didn't run)"
+            )
+        elif node.depends_on and len(not_in_catalog) == len(node.depends_on):
+            severity = "unknown"
+            no_data_reason = "none of the model's parents are in both runs' catalogs"
         else:
             severity = "ok"
         return _signal(
             "dependency_graph_compile_error",
             {"model": model, "lineage_node_id": _lineage_node_id(node)},
             {
+                **({"no_data_reason": no_data_reason} if no_data_reason else {}),
                 "model_status": model_status,
                 "model_code_changed": _code_changed(node, gateway.manifest("state")),
                 "catalog_available": catalog_available,

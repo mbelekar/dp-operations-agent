@@ -197,8 +197,22 @@ async def test_unknown_model_is_reported_not_found(tmp_path):
 
     signal = await _signal(tools, "test_failure", {"model": "no_such_model"})
 
-    assert signal.severity == "ok"
+    assert signal.severity == "unknown"
     assert signal.observed["model_found"] is False
+    assert signal.observed["no_data_reason"]
+
+
+@pytest.mark.asyncio
+async def test_model_with_no_test_results_is_unknown(tmp_path):
+    tools, _ = _build_tools(tmp_path, current={"manifest": _manifest(), "run_results": _rr({})})
+
+    signal = await _signal(tools, "test_failure", {"model": "stg_orders"})
+
+    assert signal.severity == "unknown"
+    assert signal.observed["not_run_tests"] == [
+        "not_null_stg_orders_order_id",
+        "unique_stg_orders_order_id",
+    ]
 
 
 # --- model_run_failure ------------------------------------------------------
@@ -225,6 +239,16 @@ async def test_model_run_failure_severity(tmp_path, status, severity):
     assert signal.observed["previous_status"] == "success"
     assert signal.observed["model_code_changed"] is False
     assert signal.scope["lineage_node_id"] == "job:dbt:fct_orders"
+
+
+@pytest.mark.asyncio
+async def test_model_that_did_not_run_is_unknown(tmp_path):
+    tools, _ = _build_tools(tmp_path, current={"manifest": _manifest(), "run_results": _rr({})})
+
+    signal = await _signal(tools, "model_run_failure", {"model": "fct_orders"})
+
+    assert signal.severity == "unknown"
+    assert signal.observed["status"] == "not_run"
 
 
 # --- freshness_check_failure ------------------------------------------------
@@ -257,8 +281,19 @@ async def test_freshness_unknown_source_is_reported_not_found(tmp_path):
 
     signal = await _signal(tools, "freshness_check_failure", {"source": "raw.nope"})
 
-    assert signal.severity == "ok"
+    assert signal.severity == "unknown"
     assert signal.observed["source_found"] is False
+
+
+@pytest.mark.asyncio
+async def test_freshness_not_checked_is_unknown(tmp_path):
+    sources = {"generated_at": GENERATED_AT, "results": {}}
+    tools, _ = _build_tools(tmp_path, current={"manifest": _manifest(), "sources": sources})
+
+    signal = await _signal(tools, "freshness_check_failure", {"source": "raw.orders_sink"})
+
+    assert signal.severity == "unknown"
+    assert signal.observed["status"] == "not_checked"
 
 
 # --- incremental_model_drift ------------------------------------------------
@@ -299,7 +334,7 @@ async def test_incremental_drift_after_initial_full_build_is_not_comparable(tmp_
 
     signal = await _signal(tools, "incremental_model_drift", {"model": "fct_orders"})
 
-    assert signal.severity == "ok"
+    assert signal.severity == "unknown"
     assert signal.observed["comparable"] is False
     assert signal.observed["previous_adapter_code"] == "SELECT"
 
@@ -312,7 +347,7 @@ async def test_incremental_drift_without_rows_affected_is_unavailable(tmp_path):
 
     signal = await _signal(tools, "incremental_model_drift", {"model": "fct_orders"})
 
-    assert signal.severity == "ok"
+    assert signal.severity == "unknown"
     assert signal.observed["rows_affected_available"] is False
 
 
@@ -390,8 +425,23 @@ async def test_missing_catalog_is_reported_not_guessed(tmp_path):
 
     signal = await _signal(tools, "dependency_graph_compile_error", {"model": "stg_orders"})
 
-    assert signal.severity == "ok"
+    assert signal.severity == "unknown"
     assert signal.observed["catalog_available"] is False
+
+
+@pytest.mark.asyncio
+async def test_parents_missing_from_catalog_are_unknown(tmp_path):
+    catalog = {"generated_at": GENERATED_AT, "columns": {}}
+    tools, _ = _build_tools(
+        tmp_path,
+        current={"manifest": _manifest(), "run_results": _rr({STG: "error"}), "catalog": catalog},
+        state={"manifest": _manifest(), "run_results": _rr({STG: "success"}), "catalog": catalog},
+    )
+
+    signal = await _signal(tools, "dependency_graph_compile_error", {"model": "stg_orders"})
+
+    assert signal.severity == "unknown"
+    assert signal.observed["parents_not_in_catalog"] == [SRC]
 
 
 # --- unavailable artifacts ----------------------------------------------------

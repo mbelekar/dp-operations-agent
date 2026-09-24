@@ -258,3 +258,7 @@ Automatic execution remains intentionally out of scope until the system has an a
 - [Remediation proposals](docs/proposals.md)
 - [Docker environment](docs/docker.md)
 - [Architecture decisions](docs/decisions/)
+
+## License
+
+Copyright 2026 Manasi Belekar. Licensed under the [Apache License, Version 2.0](LICENSE).

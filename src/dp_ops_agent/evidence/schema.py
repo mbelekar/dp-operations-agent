@@ -26,6 +26,11 @@ SignalType = Literal[
     "state_backend_disk_pressure",
     "savepoint_restore_failure",
     "lineage_upstream",
+    "test_failure",
+    "model_run_failure",
+    "freshness_check_failure",
+    "incremental_model_drift",
+    "dependency_graph_compile_error",
 ]
 
 Severity = Literal["ok", "warn", "critical"]
@@ -76,7 +81,7 @@ class ApprovalRecord(BaseModel):
 class Diagnosis(BaseModel):
     diagnosis_id: str = Field(default_factory=lambda: str(uuid4()))
     session_id: str
-    system: Literal["kafka", "flink"]
+    system: Literal["kafka", "flink", "dbt"]
     root_cause_hypothesis: str
     root_cause_signal_id: str
     confidence: Literal["low", "medium", "high"]

@@ -12,3 +12,4 @@ logs/evals/*.jsonl
 .mypy_cache/
 docs/plans/
 logs/
+tests/tmp/

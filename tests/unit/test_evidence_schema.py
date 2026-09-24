@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from dp_ops_agent.evidence.schema import Diagnosis, EvidenceChainEntry, Signal
+from dp_ops_agent.tools.diagnosis_output.tools import _derive_system
 
 
 def _make_signal(**overrides) -> Signal:
@@ -97,3 +98,31 @@ def test_diagnosis_rejects_root_cause_signal_id_not_cited_in_evidence_chain():
             created_at=datetime.now(timezone.utc),
             model="claude-sonnet-5",
         )
+
+
+@pytest.mark.parametrize(
+    "signal_type",
+    [
+        "test_failure",
+        "model_run_failure",
+        "freshness_check_failure",
+        "incremental_model_drift",
+        "dependency_graph_compile_error",
+    ],
+)
+def test_diagnosis_accepts_dbt_root_cause(signal_type):
+    signal = _make_signal(tool=f"dbt.{signal_type}", signal_type=signal_type, scope={})
+    diagnosis = Diagnosis(
+        session_id="s1",
+        system=_derive_system(signal.signal_id, [signal]),
+        root_cause_hypothesis="dbt-side root cause",
+        root_cause_signal_id=signal.signal_id,
+        confidence="high",
+        evidence_chain=[
+            EvidenceChainEntry(step=1, signal_id=signal.signal_id, interpretation="dbt signal")
+        ],
+        signals=[signal],
+        created_at=datetime.now(timezone.utc),
+        model="claude-sonnet-5",
+    )
+    assert diagnosis.system == "dbt"

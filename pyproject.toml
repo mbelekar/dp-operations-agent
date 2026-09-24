@@ -32,4 +32,6 @@ packages = ["src/dp_ops_agent"]
 markers = ["llm: requires a live ANTHROPIC_API_KEY and makes real model calls"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-m 'not llm'"
+# tmp_path directories land in tests/tmp/ (gitignored). pytest wipes this
+# directory at the start of every run, so never put anything else in it.
+addopts = "-m 'not llm' --basetemp=tests/tmp"

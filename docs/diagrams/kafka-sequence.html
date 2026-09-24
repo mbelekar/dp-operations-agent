@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>How a Kafka investigation works</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;   /* white-smoke */
+      --color-ink:     #2d3142;   /* jet-black */
+      --color-muted:   #4f5d75;   /* blue-slate */
+      --color-accent:  #eb6c36;   /* atomic-tangerine */
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+
+    .frame { max-width: 960px; width: 100%; }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+
+    svg { width: 100%; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Sequence · Kafka investigation</p>
+    <h1>How an investigation works</h1>
+
+    <svg viewBox="0 0 920 504" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="kafka-sequence-title kafka-sequence-desc">
+      <title id="kafka-sequence-title">How a Kafka investigation works</title>
+      <desc id="kafka-sequence-desc">The agent asks a Kafka tool for a signal; the tool reads metrics through the gateway, stores a typed Signal in the evidence registry, and returns it; when the agent cites signal IDs in submit_diagnosis, the evidence chain is validated against the registry and accepted or rejected.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- Lifelines, activation bars, and messages first; labels, then actor boxes on top. -->
+      <line x1="100" y1="72" x2="100" y2="480" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="3,3"/>
+      <line x1="280" y1="72" x2="280" y2="480" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="3,3"/>
+      <line x1="460" y1="72" x2="460" y2="480" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="3,3"/>
+      <line x1="640" y1="72" x2="640" y2="480" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="3,3"/>
+      <line x1="820" y1="72" x2="820" y2="480" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="3,3"/>
+      <rect x="276" y="112" width="8" height="208" fill="rgba(45,49,66,0.06)" stroke="#4f5d75" stroke-width="0.8"/>
+      <rect x="456" y="160" width="8" height="64" fill="rgba(45,49,66,0.06)" stroke="#4f5d75" stroke-width="0.8"/>
+      <rect x="816" y="352" width="8" height="112" fill="rgba(45,49,66,0.06)" stroke="#4f5d75" stroke-width="0.8"/>
+      <rect x="636" y="400" width="8" height="64" fill="rgba(45,49,66,0.06)" stroke="#4f5d75" stroke-width="0.8"/>
+      <line x1="100" y1="120" x2="275" y2="120" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <line x1="284" y1="168" x2="455" y2="168" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <line x1="456" y1="216" x2="285" y2="216" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+      <line x1="284" y1="264" x2="639" y2="264" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <line x1="276" y1="312" x2="101" y2="312" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+      <line x1="100" y1="360" x2="815" y2="360" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <line x1="816" y1="408" x2="645" y2="408" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <line x1="644" y1="456" x2="815" y2="456" stroke="#eb6c36" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow-accent)"/>
+
+      <rect x="125" y="100" width="131" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="190" y="109" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Request a Kafka signal</text>
+      <rect x="299" y="148" width="142" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="370" y="157" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Read metrics or metadata</text>
+      <rect x="321" y="196" width="98" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="370" y="205" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Raw observations</text>
+      <rect x="495" y="244" width="109" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="550" y="253" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Store typed Signal</text>
+      <rect x="135" y="292" width="109" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="190" y="301" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Return Signal JSON</text>
+      <rect x="116" y="340" width="147" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="190" y="349" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Cite collected signal IDs</text>
+      <rect x="662" y="388" width="136" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="730" y="397" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Validate evidence chain</text>
+      <rect x="681" y="436" width="98" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="730" y="445" fill="#eb6c36" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Accept or reject</text>
+
+      <rect x="30" y="24" width="140" height="48" rx="6" fill="#f5f5f5"/>
+      <rect x="30" y="24" width="140" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="100" y="52" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Agent</text>
+      <rect x="210" y="24" width="140" height="48" rx="6" fill="#f5f5f5"/>
+      <rect x="210" y="24" width="140" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="280" y="52" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Kafka tool</text>
+      <rect x="390" y="24" width="140" height="48" rx="6" fill="#f5f5f5"/>
+      <rect x="390" y="24" width="140" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="460" y="52" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Gateway</text>
+      <rect x="570" y="24" width="140" height="48" rx="6" fill="#f5f5f5"/>
+      <rect x="570" y="24" width="140" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="640" y="52" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Evidence registry</text>
+      <rect x="750" y="24" width="140" height="48" rx="6" fill="#f5f5f5"/>
+      <rect x="750" y="24" width="140" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="820" y="52" fill="#2d3142" font-size="12" font-weight="500" font-family="'Geist Mono', monospace" text-anchor="middle">submit_diagnosis</text>
+    </svg>
+  </div>
+</body>
+</html>

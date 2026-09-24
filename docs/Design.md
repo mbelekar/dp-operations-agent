@@ -1,10 +1,10 @@
-# Data Platform Operations Agent — Design
+# Data Platform Operations Agent: Design
 
-2026-09-20 · @Someone
+2026-09-20 · @mbelekar
 
 ## Overview & scope
 
-The agent diagnoses failures across Kafka, Flink, dbt, and data-quality layers, and proposes remediation for human approval — it does not auto-execute changes in v1.
+The agent diagnoses failures across Kafka, Flink, dbt, and data-quality layers, and proposes remediation for human approval. It does not auto-execute changes in v1.
 
 **In scope**
 
@@ -60,27 +60,27 @@ Evidence gathering pulls the last N minutes of these metrics plus recent broker/
 | State backend disk pressure | RocksDB metrics / TaskManager disk metrics | State growth from a skewed key, missing TTL, or unbounded window |
 | Savepoint restore failure | Job manager logs | Incompatible state schema after a job graph or operator UID change |
 
-Backpressure localization matters most here: the agent walks the operator chain from sink to source using the REST API's per-vertex backpressure ratio to find which operator is actually saturated, rather than restarting the whole job — a common but often ineffective first response.
+Backpressure localization matters most here: the agent walks the operator chain from sink to source using the REST API's per-vertex backpressure ratio to find which operator is actually saturated, rather than restarting the whole job, a common but often ineffective first response.
 
 ## dbt diagnostic module
 
 | Signal | Source | What it can mean |
 | --- | --- | --- |
-| Test failure (not-null, unique, relationships, custom) | dbt run artifacts (`run_results.json`) | Data-quality issue in the model or its inputs — usually upstream, not the model's SQL |
+| Test failure (not-null, unique, relationships, custom) | dbt run artifacts (`run_results.json`) | Data-quality issue in the model or its inputs, usually upstream, not the model's SQL |
 | Model run failure (compile or execution error) | dbt run artifacts / warehouse logs | Schema change, broken ref, or warehouse resource limit |
-| Freshness check failure | `sources.json` from `dbt source freshness` | Almost always upstream — the loader or streaming sink stopped landing data on schedule |
+| Freshness check failure | `sources.json` from `dbt source freshness` | Almost always upstream: the loader or streaming sink stopped landing data on schedule |
 | Incremental model drift | Row-count / max-timestamp comparison vs. expected | A gap in the upstream stream (e.g., a replay window that didn't fully backfill) |
 | Dependency-graph compile error after schema change | `manifest.json` diff | An upstream table changed shape without a corresponding model update |
 
-The agent distinguishes "the model's logic is wrong" from "the model is correct but its inputs are bad" by checking whether the same test passed on the previous run with no code change — if so, the fault is almost certainly upstream, and the agent routes the investigation there via lineage rather than suggesting a model edit.
+The agent distinguishes "the model's logic is wrong" from "the model is correct but its inputs are bad" by checking whether the same test passed on the previous run with no code change. If so, the fault is almost certainly upstream, and the agent routes the investigation there via lineage rather than suggesting a model edit.
 
 ## Data quality diagnostic module
 
-- **Schema drift** — new, missing, retyped, or renamed columns detected by diffing schema snapshots (Kafka schema registry, warehouse `information_schema`, dbt `manifest.json`) run-over-run.
-- **Statistical anomalies** — volume, null-rate, and distribution shifts against a rolling baseline (e.g., z-score or seasonal-adjusted thresholds), sourced from existing tools like Great Expectations, Soda, or Monte Carlo where already deployed, rather than reimplementing detection.
-- **Cross-system contract violations** — a producer's schema-registry-declared contract diverges from what a consumer (Flink job or dbt source) actually expects, caught by comparing the registry schema against the consumer's declared/inferred schema.
+- **Schema drift:** new, missing, retyped, or renamed columns detected by diffing schema snapshots (Kafka schema registry, warehouse `information_schema`, dbt `manifest.json`) run-over-run.
+- **Statistical anomalies:** volume, null-rate, and distribution shifts against a rolling baseline (e.g., z-score or seasonal-adjusted thresholds), sourced from existing tools like Great Expectations, Soda, or Monte Carlo where already deployed, rather than reimplementing detection.
+- **Cross-system contract violations:** a producer's schema-registry-declared contract diverges from what a consumer (Flink job or dbt source) actually expects, caught by comparing the registry schema against the consumer's declared/inferred schema.
 
-This module mostly acts as a **signal source** feeding the core loop rather than a standalone diagnostic path — a data-quality alert is almost always a symptom, and the loop's job is to trace it to a Kafka, Flink, or dbt root cause.
+This module mostly acts as a **signal source** feeding the core loop rather than a standalone diagnostic path. A data-quality alert is almost always a symptom, and the loop's job is to trace it to a Kafka, Flink, or dbt root cause.
 
 ## Lineage integration
 
@@ -90,13 +90,13 @@ Lineage is what turns four separate diagnostic modules into one platform-aware a
 - **Column-level lineage** matters, not just table-level: a schema failure on one field should scope the blast radius to that field's actual downstream consumers, not fan out an incident to every consumer of the table.
 - **Query pattern:** given a failing node (a dbt test, a Flink job, a Kafka topic), walk upstream through the lineage graph, filter to nodes that changed or degraded within the incident window, and rank candidates by proximity and by whether their own health signals were anomalous at that time.
 
-This graph is also what scopes remediation blast radius (Remediation workflow, below) — before proposing a replay or restart, the agent lists every downstream consumer that action would affect.
+This graph is also what scopes remediation blast radius (Remediation workflow, below): before proposing a replay or restart, the agent lists every downstream consumer that action would affect.
 
 ## Replay & state management
 
 This is the highest-risk category because replaying data into a stateful, exactly-once pipeline can silently double-count or corrupt state if idempotency isn't understood first.
 
-**Idempotency model** — before ever proposing a replay, the agent looks up a per-sink idempotency rating maintained in a small registry: `idempotent` (safe, e.g., an upsert-by-key sink), `dedupable` (safe if replayed with the original event keys/timestamps, e.g., a sink with dedup logic), or `append-only` (unsafe — replay will duplicate rows; requires a compensating delete/backfill step).
+**Idempotency model:** before ever proposing a replay, the agent looks up a per-sink idempotency rating maintained in a small registry: `idempotent` (safe, e.g., an upsert-by-key sink), `dedupable` (safe if replayed with the original event keys/timestamps, e.g., a sink with dedup logic), or `append-only` (unsafe: replay will duplicate rows; requires a compensating delete/backfill step).
 
 **Replay mechanisms it reasons about:**
 
@@ -107,21 +107,21 @@ This is the highest-risk category because replaying data into a stateful, exactl
 **Safety checks before proposing any replay:**
 
 1. Sink idempotency rating (above)
-2. Downstream consumer list from the lineage graph — who else reads this data and would be affected
+2. Downstream consumer list from the lineage graph: who else reads this data and would be affected
 3. Estimated data volume and time-to-replay, so the proposal states cost, not just action
 4. Whether a partial replay already happened (avoiding re-replaying an already-recovered range)
 
 ## Remediation workflow & approval tiers
 
-Every proposal is tiered by blast radius and reversibility, which controls how it's presented — not whether it's diagnosed. Given the chosen autonomy level (diagnose + propose, nothing auto-executes), all tiers currently route to a human approval step; the tiering still matters because it changes what evidence and warnings accompany the proposal.
+Every proposal is tiered by blast radius and reversibility, which controls how it's presented, not whether it's diagnosed. Given the chosen autonomy level (diagnose + propose, nothing auto-executes), all tiers currently route to a human approval step; the tiering still matters because it changes what evidence and warnings accompany the proposal.
 
 | Tier | Example actions | What the proposal must include |
 | --- | --- | --- |
-| 0 — informational | No action; root cause identified | Evidence chain, confidence level |
-| 1 — reversible, narrow | Restart a Flink job from last good checkpoint; re-run one dbt model; replay a narrow Kafka offset range for one consumer group | Above + expected outcome, rollback step |
-| 2 — state-changing, broad | Full topic replay; savepoint migration across a job-graph change; multi-day dbt backfill | Above + downstream consumer list, estimated volume/duration, idempotency rating, explicit "this cannot be easily undone" flag |
+| 0: informational | No action; root cause identified | Evidence chain, confidence level |
+| 1: reversible, narrow | Restart a Flink job from last good checkpoint; re-run one dbt model; replay a narrow Kafka offset range for one consumer group | Above + expected outcome, rollback step |
+| 2: state-changing, broad | Full topic replay; savepoint migration across a job-graph change; multi-day dbt backfill | Above + downstream consumer list, estimated volume/duration, idempotency rating, explicit "this cannot be easily undone" flag |
 
-**Approval UX:** each proposal shows the evidence chain (what was observed, in what order, across which systems), the exact action to be taken (e.g., the literal `kafka-consumer-groups` offset command or Flink REST call), and its blast radius, before the approve/reject control. Every decision — approved, rejected, or expired without action — is logged with the reviewer, timestamp, and reasoning if given, forming the audit trail and the training signal for later tightening or loosening autonomy.
+**Approval UX:** each proposal shows the evidence chain (what was observed, in what order, across which systems), the exact action to be taken (e.g., the literal `kafka-consumer-groups` offset command or Flink REST call), and its blast radius, before the approve/reject control. Every decision (approved, rejected, or expired without action) is logged with the reviewer, timestamp, and reasoning if given, forming the audit trail and the training signal for later tightening or loosening autonomy.
 
 ## Agent architecture
 
@@ -139,17 +139,17 @@ flowchart TD
 ```
 
 - **Orchestrator:** a tool-calling LLM (Claude) that runs the detect → localize → diagnose → propose loop. All diagnostic tools are read-only and always available; the execution tool is separate, tier-aware, and only callable after an approval record exists.
-- **Diagnostic tools:** thin, typed clients over the Kafka Admin API, Flink REST API, dbt artifacts/Cloud API, and the lineage query API — each returns structured evidence, not free text, so the orchestrator's reasoning stays grounded in real metrics rather than paraphrased summaries.
+- **Diagnostic tools:** thin, typed clients over the Kafka Admin API, Flink REST API, dbt artifacts/Cloud API, and the lineage query API. Each returns structured evidence, not free text, so the orchestrator's reasoning stays grounded in real metrics rather than paraphrased summaries.
 - **Runbook knowledge base:** a RAG index over past incident write-ups and known remediation patterns, so recurring failure signatures get faster, more consistent proposals over time.
-- **Permission boundary:** enforced outside the LLM, in the tool layer — the execution tool itself checks for a valid, unexpired approval record matching the exact proposed action before it will run anything, so a prompt-level mistake can't skip the gate.
+- **Permission boundary:** enforced outside the LLM, in the tool layer. The execution tool itself checks for a valid, unexpired approval record matching the exact proposed action before it will run anything, so a prompt-level mistake can't skip the gate.
 
 ## Evaluation
 
 Tests verify code correctness (does a diagnostic tool compute severity correctly for known input) and grounding enforcement (does the evidence-chain validator actually reject an ungrounded claim). Neither checks whether the agent's diagnosis is *right*. A separate evaluation suite closes that gap: a small set of labeled incident scenarios, each with a known root-cause signal, run against a live model and graded automatically.
 
-**Grading is deterministic for now, not LLM-as-judge.** Each scenario declares the signal type that represents its true root cause. A run passes if that signal type appears among the signals actually *cited* in the final evidence chain — not merely collected during the session, but used to support the stated hypothesis. This reuses the same typed evidence contracts the grounding validator already enforces, rather than matching free text in the hypothesis itself, which would be fragile to wording changes. LLM-as-judge grading is a reasonable next step once the deterministic loop is proven out, particularly for scenarios where "correct" isn't reducible to a single signal type.
+**Grading is deterministic for now, not LLM-as-judge.** Each scenario declares the signal type that represents its true root cause. A run passes if that signal type appears among the signals actually *cited* in the final evidence chain, not merely collected during the session, but used to support the stated hypothesis. This reuses the same typed evidence contracts the grounding validator already enforces, rather than matching free text in the hypothesis itself, which would be fragile to wording changes. LLM-as-judge grading is a reasonable next step once the deterministic loop is proven out, particularly for scenarios where "correct" isn't reducible to a single signal type.
 
-**Scenarios are incident fixtures, not synthetic cases invented just for evaluation.** The same fixture files used to unit-test individual diagnostic tools double as evaluation scenarios, each paired with its expected root-cause signal type — one incident definition, used for both code-level and agent-level testing, rather than two parallel sets of incident data drifting apart over time.
+**Scenarios are incident fixtures, not synthetic cases invented just for evaluation.** The same fixture files used to unit-test individual diagnostic tools double as evaluation scenarios, each paired with its expected root-cause signal type: one incident definition, used for both code-level and agent-level testing, rather than two parallel sets of incident data drifting apart over time.
 
 The suite is expected to grow alongside each phase: new modules (Flink, dbt) bring their own incident fixtures, and each one becomes both a unit-test fixture and an evaluation scenario, the same way the four Kafka scenarios do today.
 
@@ -165,4 +165,4 @@ The suite is expected to grow alongside each phase: new modules (Flink, dbt) bri
 
 Phase 1 is the right starting point for a working prototype: pick one system (Kafka or Flink, whichever has more current incident volume) and build the orchestrator + one diagnostic tool + a proposal output, before adding lineage or the other systems.
 
-Each phase that adds a diagnostic module should extend the evaluation suite (see Evaluation, above) with at least one scenario for its new signals — not just unit tests for the tools themselves.
+Each phase that adds a diagnostic module should extend the evaluation suite (see Evaluation, above) with at least one scenario for its new signals, not just unit tests for the tools themselves.

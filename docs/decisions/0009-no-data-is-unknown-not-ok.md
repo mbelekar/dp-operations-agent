@@ -1,28 +1,105 @@
-# ADR-0009: A tool that finds no data reports severity `unknown`, not `ok`
+# ADR-0009: Report missing data as `unknown`
 
-**Status:** Accepted
-**Date:** 2026-09-24
-
-## Context
-
-Every diagnostic tool computes severity by thresholding whatever its gateway returned, e.g. `max(lag_by_subtask.values(), default=0.0) > 60_000`. An empty result (an unknown vertex, topic, consumer group, or lineage node, or a metric the backend simply doesn't report) passes every threshold and came back `ok`. Some tools went further and filled in a healthy-looking value: the Flink fixture gateway defaulted a missing vertex to `backpressure_level: "ok"`, and `schema_registry_compat` read an empty registry response as `is_compatible: true`.
-
-This surfaced in a live eval run: coming from a dbt alert, the model queried Flink vertex `sink`, which the fixture has no data for. Three Flink tools returned `ok`, and the diagnosis described Flink as "nominal", while watermark lag on vertex `source` was critical. The grounding validator (ADR-0002) couldn't catch it: the signal really was collected, it just asserted a health it never observed. Checking every tool against unknown identifiers found the same pattern in 12 of 13 cases, plus one inverse: `consumer_lag_trend` read a consumer group's missing committed offsets as offset 0 and reported the whole topic as critical lag. In live mode `schema_registry_compat` reported `ok` on every call (its compatibility endpoint is POST-only, so every GET fails, and the failure became "compatible").
+| Status | Date |
+| --- | --- |
+| Accepted | 2026-09-24 |
 
 ## Decision
 
-`Severity` gains a fourth value, `unknown`: the tool found no data for the identifiers it was asked about. Every tool whose empty result can't mean healthy reports `unknown`, with `observed.no_data_reason` naming what was missing, instead of thresholding the empty result. The distinction is made in the tools, not by changing gateway Protocols, with one exception: lineage, where an empty upstream list *is* a legitimate answer for a source node, so `LineageGraphView` gains `node_found` to tell "never heard of this node" apart from "nothing upstream".
+When a diagnostic tool finds no data for the requested identifier, return `severity: unknown` instead of `ok`.
 
-The grounding validator additionally rejects a `root_cause_signal_id` whose signal is `unknown`: a hypothesis can't rest on a signal that observed nothing. An `unknown` signal can still be cited elsewhere in `evidence_chain` ("no data for vertex sink, so checked source instead"). The system prompt says `unknown` is not evidence of health and should prompt a retry with other identifiers or be reported as a gap.
+An `unknown` signal may describe an evidence gap, but it cannot be selected as `root_cause_signal_id`.
+
+## Context
+
+Several tools originally applied thresholds to empty results. Empty collections therefore produced healthy-looking defaults such as zero lag or `backpressure_level: ok`.
+
+One tool had the inverse problem: a missing committed offset was interpreted as offset zero, creating false critical lag.
+
+The problem surfaced during a live-model evaluation:
+
+1. The model queried a nonexistent Flink vertex named `sink`.
+2. Three tools returned `ok` because their result sets were empty.
+3. The diagnosis described Flink as healthy.
+4. A real `source` vertex had critical watermark lag.
+
+Grounding could not catch this. The signals had genuinely been collected, but the tools had assigned meaning to data they never observed.
+
+## Behaviour
+
+| Situation | Result |
+| --- | --- |
+| Identifier exists and observations are healthy | `ok` |
+| Identifier exists and observations cross a threshold | `warn` or `critical` |
+| Identifier is unknown or its metric is unavailable | `unknown` with `observed.no_data_reason` |
+| Lineage node exists but has no upstream node | `ok`, with an empty upstream list |
+| Lineage node does not exist | `unknown`, using `node_found: false` |
+
+The lineage gateway needs `node_found` because an empty upstream list is valid for a source node.
+
+## Root-cause validation
+
+The grounding validator rejects an `unknown` signal as `root_cause_signal_id` because it contains no positive observation.
+
+The signal may still appear elsewhere in the evidence chain, for example:
+
+> No data existed for vertex `sink`, so the investigation retried with known vertex `source`.
+
+## Identifier hints and retry policy
+
+Making gaps visible exposed a second issue: the model guessed identifiers and retried repeatedly.
+
+Unknown-identifier responses now include up to 20 valid identifiers where possible:
+
+- `known_topics`
+- `known_groups`
+- `known_brokers`
+- `known_subjects`
+- `known_jobs`
+- `known_vertices`
+- `known_models`
+- `known_sources`
+
+The system prompt permits one retry after `unknown`, using only:
+
+- an identifier from a `known_*` list;
+- an identifier in the alert; or
+- an identifier returned by another tool.
+
+If an identifier exists but a metric is unavailable, the result says not to retry it.
+
+Broker IDs are a special case: `isr_churn` may use the numeric broker IDs returned in `under_replicated_partitions` replica and ISR lists.
 
 ## Alternatives considered
 
-- **Keep `ok` and add `observed.data_available: false`.** Rejected. The failure happened precisely because the model trusted the severity field; a flag it has to notice inside `observed` is the weaker fix, and every consumer of severity (including a human reading an audit log) would keep being misled.
-- **Raise an error so the tool middleware reports it as a tool error.** Rejected. A tool error means "the backend is unavailable" (see `orchestrator/tool_errors.py`), which is wrong for "the backend answered, and has nothing for this identifier", and it records no signal, so the model couldn't cite the gap at all.
-- **Every gateway method returns `None` for "entity not found".** Deferred. More precise, but it changes 13 methods across three Protocols and every fixture, and wasn't needed to fix the failure seen.
+| Alternative | Why it was rejected or deferred |
+| --- | --- |
+| Keep `ok` and add `data_available: false` | Rejected. Consumers naturally trust the severity field, so `ok` would remain misleading. |
+| Raise a tool error | Rejected. “No data for this identifier” is different from a backend failure, and an error would leave no citable signal describing the gap. |
+| Change every gateway method to return `None` | Deferred. It would require broad protocol and fixture changes without being necessary for this correction. |
+| Add separate discovery tools | Rejected for now. They add a round trip, still require the model to call them first, and duplicate hints that can be returned only when needed. |
 
 ## Consequences
 
-Tools that have no live data source now say so instead of silently passing: `hot_partition_skew` and `schema_registry_compat` report `unknown` on every live call, and `state_backend_disk_pressure` does for the demo job (no `disk_used_ratio` metric). Those were always gaps; they're just visible now. `unknown` also covers a real outage that yields no data (e.g. an exporter losing a broker), which is still the honest report; `no_data_reason` says what was asked for. **Follow-up, same day: `unknown` results name the valid identifiers.** Re-running the eval after this change (8/8 still passing) showed a cost: with no tool that lists topics, consumer groups, jobs, or vertices, the model guessed them, and every wrong guess now said "nothing found", which the prompt's "retry with other identifiers" turned into brute force (`rebalance_storm` went from 5 to 16 tool calls, 15 of them `unknown`; `flink_checkpoint_failure` from 20 to 36). The guessing wasn't new, it had been hidden behind silent `ok`s. So an `unknown` result caused by an identifier not being found now lists the ones that exist (`observed.known_topics`, `known_groups`, `known_brokers`, `known_subjects`, `known_jobs`, `known_vertices`, `known_models`, `known_sources`, capped at 20), fetched only on the `unknown` path so a healthy or critical result costs nothing extra; an identifier that exists but has no data says so and not to retry it (live mode's `hot_partition_skew` and `schema_registry_compat` are exactly this). The system prompt caps retries after an `unknown` result at one, only with an identifier from a `known_*` list, the alert, or another tool result, and forbids inventing names to retry with. That cap is explicitly scoped to retries: a first version worded it broadly ("never make up a ... broker"), and in the next eval run the model stopped calling `isr_churn` at all, since no tool result labels anything a broker, failing both `isr_churn` cross-system scenarios. The prompt and `isr_churn`'s description now say broker ids are the numbers in `under_replicated_partitions`' `replicas`/`isr` lists. One side effect remains open: with the hints, the dbt flagship now reaches the critical Flink watermark lag it used to miss, and in some runs (2 of 6 after the fix) stops there instead of checking `isr_churn`. See [`docs/dbt.md`](../dbt.md#known-gaps). Separate discovery tools were rejected: the model has to think to call them, every session pays a round trip, and it can still guess first. Lineage gets the retry cap but no node list; listing Marquez nodes needs a search or a namespace crawl, and it caused at most two `unknown` calls per scenario.
+### Improvements
 
-`savepoint_restore_failure` is deliberately unchanged: for a job that exists, an empty exception history really is healthy. Live `rebalance_frequency` for a nonexistent group is unverified: the live gateway always returns one `describe_consumer_groups` state, and what Kafka reports for a group that doesn't exist wasn't checked.
+- Missing observations no longer look healthy.
+- Live data-source gaps are visible rather than silently passing.
+- The model receives valid identifiers without unrestricted guessing.
+- The evaluation suite still passed 8 of 8 scenarios immediately after the change.
+
+### Visible live-mode gaps
+
+The following tools now honestly report `unknown` when their live backend lacks the required data:
+
+- Kafka `hot_partition_skew`
+- Kafka `schema_registry_compat`
+- Flink `state_backend_disk_pressure` for the demo job
+
+### Remaining limitations
+
+- A real outage that prevents metrics from arriving also appears as `unknown`; `no_data_reason` states what could not be observed.
+- Marquez does not return a convenient node inventory, so lineage gets the retry cap but no `known_nodes` list.
+- The dbt flagship evaluation sometimes stops at critical Flink watermark lag instead of continuing to Kafka ISR churn. It passed 4 of 6 recorded runs after the retry-scope fix. See [dbt known gaps](../dbt.md#known-gaps).
+- `savepoint_restore_failure` remains intentionally different: an existing job with an empty exception history is healthy.
+- Live behaviour for `rebalance_frequency` on a nonexistent consumer group remains unverified.

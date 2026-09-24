@@ -1,93 +1,94 @@
 # Kafka diagnostic module
 
-**Status: Implemented (Phase 1).** See [`flink.md`](flink.md) (Phase 2a), [`lineage.md`](lineage.md) (Phase 2b), and [`dbt.md`](dbt.md) (Phase 3a) for the other modules.
+> **Status:** Implemented in Phase 1
 
-## What it does
+The Kafka module investigates broker, partition, consumer, and schema problems using six read-only tools. It returns typed evidence that the agent can cite in a grounded diagnosis.
 
-Given an incident alert (e.g. "consumer lag alert on billing-svc/orders"), the agent investigates using six read-only Kafka diagnostic tools. It then produces a `Diagnosis`: a root-cause hypothesis backed by an evidence chain, where every claim traces back to a real tool call made in that session. It cannot invent a metric value. See [Grounding: how the evidence chain is enforced](#grounding-how-the-evidence-chain-is-enforced) for how that is guaranteed in code, not just by prompting.
+Related modules: [Flink](flink.md) · [Lineage](lineage.md) · [dbt](dbt.md)
 
-## Code flow
+## What it can diagnose
 
-```mermaid
-sequenceDiagram
-    participant CLI as cli.py
-    participant Session as orchestrator/session.py
-    participant Agent as LangGraph agent<br/>(create_agent)
-    participant Model as ChatAnthropic
-    participant Tools as tools/kafka/tools.py
-    participant Gateway as KafkaMetricsGateway
-    participant Audit as JsonlAuditSink
-
-    CLI->>Session: run_diagnosis(session_id, alert_text, kafka_gateway, flink_gateway, audit, model)
-    Session->>Audit: append(diagnosis_run_started)
-    Session->>Session: build_tools(...) → 6 Kafka tools + 5 Flink tools + submit_diagnosis
-    Session->>Agent: create_agent(model, tools, system_prompt)
-    Session->>Agent: ainvoke({"messages": [alert_text]})
-
-    loop until submit_diagnosis is called
-        Agent->>Model: send message history + tool schemas
-        Model-->>Agent: tool call (e.g. under_replicated_partitions)
-        Agent->>Tools: invoke tool
-        Tools->>Gateway: cluster_metadata(topics) / etc.
-        Gateway-->>Tools: raw metric data
-        Tools->>Tools: build Signal, compute severity
-        Tools->>Audit: append(signal_collected)
-        Tools-->>Agent: Signal as JSON string
-        Agent->>Model: tool result
-    end
-
-    Model-->>Agent: tool call: submit_diagnosis(hypothesis, confidence, evidence_chain)
-    Agent->>Tools: submit_diagnosis handler
-    Tools->>Tools: assemble Diagnosis from collected signals<br/>+ validate evidence_chain_is_grounded
-    alt validation passes
-        Tools->>Audit: append(diagnosis_completed)
-        Tools-->>Agent: "Diagnosis {id} recorded."
-    else validation fails (ungrounded or empty evidence)
-        Tools-->>Agent: "submit_diagnosis rejected: ..."
-        Note over Agent,Model: model must retry with real evidence
-    end
-
-    Agent-->>Session: final graph state
-    Session-->>CLI: DiagnosisRunResult(diagnosis, session_id, audit_log_path)
-```
-
-## Signals collected
-
-Each signal is a typed `Signal` (see `evidence/schema.py`), not free text. The model's reasoning is grounded in structured JSON it cannot paraphrase away from.
-
-| Tool | File | What it detects |
+| Tool | Detects | Typical causes |
 | --- | --- | --- |
-| `under_replicated_partitions` | `tools/kafka/tools.py` | Broker failure, disk pressure, or network partition (diffs `replicas` vs `isr` per partition) |
-| `isr_churn` | `tools/kafka/tools.py` | Flaky broker, GC pauses, or network instability (ISR shrink/expand rate per broker) |
-| `consumer_lag_trend` | `tools/kafka/tools.py` | Processing can't keep up, a stuck consumer, or an upstream burst (high watermark minus committed offset per partition) |
-| `rebalance_frequency` | `tools/kafka/tools.py` | Session-timeout misconfig, slow poll loop, or crash-looping consumer (consumer group state transitions) |
-| `hot_partition_skew` | `tools/kafka/tools.py` | Poor partition key choice or a noisy producer (per-partition throughput skew ratio) |
-| `schema_registry_compat` | `tools/kafka/tools.py` | A producer shipped an incompatible schema change |
+| `under_replicated_partitions` | Replicas missing from the in-sync replica set | Broker failure, disk pressure, network partition |
+| `isr_churn` | Frequent ISR shrink and expansion | Flaky broker, GC pauses, network instability |
+| `consumer_lag_trend` | Growing lag by partition | Slow or stuck consumer, upstream traffic burst |
+| `rebalance_frequency` | Frequent consumer-group transitions | Session timeout, slow poll loop, crash loop |
+| `hot_partition_skew` | Uneven throughput across partitions | Poor partition key, noisy producer |
+| `schema_registry_compat` | Incompatible schema change | Breaking producer schema |
 
-The build order followed the cascading-failure example this module is built around. `under_replicated_partitions` and `isr_churn` came first, since they form the actual root-cause chain (ISR churn causes under-replication). `consumer_lag_trend` came next, the visible symptom. The remaining three signals came last, they rule out alternative hypotheses.
+The first three tools cover the main cascade used by this project:
 
-## The gateway abstraction: one seam, two implementations
-
-Every tool talks to Kafka through the `KafkaMetricsGateway` Protocol (`tools/kafka/gateway.py`), not directly through `confluent-kafka` or an HTTP client. This is the one seam that makes the whole loop testable without a live cluster:
-
-- **`LiveKafkaGateway`** (`tools/kafka/live_gateway.py`): the real implementation. Uses `confluent-kafka`'s `AdminClient` for metadata and consumer-group state, a JMX-Prometheus exporter scrape (cached for 5s so one session doesn't re-fetch the same payload twice) for broker and partition metrics, and the Schema Registry REST API. Verified against a real 3-broker cluster, see [`docs/docker.md`](docker.md). One tool doesn't have a real live data source: `hot_partition_skew` needs per-partition throughput, and Kafka's own JMX only exposes that at broker and topic level, never per-partition. It always returns an empty result in live mode, so the tool reports severity `unknown` there; this is a real gap, not an oversight, see `live_gateway.py`'s docstring. `schema_registry_compat` is in the same position live: Schema Registry's compatibility endpoint is POST-only and needs a candidate schema this tool doesn't have, so every live call reports `unknown` (see [`docker.md`](docker.md#known-gaps)).
-- **`FixtureKafkaGateway`** (`tools/kafka/fixture_gateway.py`): loads a JSON snapshot and returns deterministic canned responses. Used by every test and by the CLI's `--fixture` flag, so the agent's reasoning can be exercised and demoed with no live infrastructure.
-
-## When a tool finds no data
-
-A tool that finds nothing for the identifiers it was given (an unknown topic, broker, consumer group, or schema subject) reports severity `unknown` with an `observed.no_data_reason`, never `ok`: no data is not evidence of health, and the grounding validator won't accept an `unknown` signal as the root cause. The `unknown` result also names what does exist (`known_topics`, `known_groups`, `known_brokers`, or `known_subjects`, capped at 20), or, when the identifier is real but has no data (a topic live mode never reports per-partition throughput for, a subject with no compatibility verdict), says so and not to retry it; the system prompt allows one retry, only with a known identifier. `consumer_lag_trend` measures lag only on partitions the group has a committed offset for, listing the rest in `partitions_without_committed_offset`; it used to read a missing offset as 0 and report the whole topic as lag. See [ADR-0009](decisions/0009-no-data-is-unknown-not-ok.md).
-
-## Grounding: how the evidence chain is enforced
-
-The core safety requirement this module is built around: the agent's reasoning has to stay grounded in real metrics, not paraphrased summaries. This is enforced at three points, not just by prompt instructions:
-
-1. **Tools return structured data.** Every Kafka tool returns `signal.model_dump_json()`, a pydantic-validated `Signal`, never prose.
-2. **Signals are tracked server-side, not restated by the model.** `build_kafka_tools` and `build_diagnosis_output_tools` (`tools/registry.py`) share one `collected_signals: list[Signal]` list, appended to on every tool call. When the model calls `submit_diagnosis`, the `Diagnosis` is assembled from that list. The model only has to cite `signal_id`s in its `evidence_chain`, it never restates signal payloads.
-3. **`Diagnosis.evidence_chain_is_grounded`** (`evidence/schema.py`) is a pydantic `model_validator` that runs the moment `submit_diagnosis` is called. It rejects the diagnosis, as a tool error, forcing the model to retry with real evidence, if `evidence_chain` or `signals` is empty, or if any `evidence_chain` entry cites a `signal_id` that was not actually collected in that session.
-
-## Example run
-
+```text
+ISR churn → under-replicated partition → consumer lag
 ```
+
+The remaining tools help rule out competing explanations.
+
+## How an investigation works
+
+<p align="center">
+  <img src="diagrams/kafka-sequence.png" width="720" alt="How an investigation works: the agent requests a Kafka signal; the tool reads metrics or metadata through the gateway, stores a typed Signal in the evidence registry, and returns the Signal JSON; the agent cites collected signal IDs in submit_diagnosis, which validates the evidence chain against the registry and accepts or rejects it">
+</p>
+
+The full application loop also records `diagnosis_run_started`, `signal_collected`, `tool_error`, `diagnosis_completed`, and `session_usage` events in the audit log.
+
+## Evidence grounding
+
+Grounding is enforced in code at three points:
+
+1. **Structured tool output**  
+   Every Kafka tool returns a Pydantic-validated `Signal`, not free text.
+
+2. **Server-side evidence collection**  
+   Each tool appends its signal to the session's `collected_signals` registry. The model does not recreate signal payloads.
+
+3. **Diagnosis validation**  
+   `Diagnosis.evidence_chain_is_grounded` rejects a diagnosis when:
+   - no evidence was collected;
+   - the evidence chain is empty; or
+   - an evidence entry cites an unknown `signal_id`.
+
+If validation fails, `submit_diagnosis` returns a tool error and the model must retry with evidence it actually received.
+
+Implementation: `evidence/schema.py`, `tools/registry.py`, and `tools/diagnosis_output/`.
+
+## Gateway design
+
+Kafka tools depend on the `KafkaMetricsGateway` protocol rather than Kafka clients directly.
+
+| Implementation | Purpose | Data source |
+| --- | --- | --- |
+| `LiveKafkaGateway` | Real infrastructure | Kafka `AdminClient`, JMX Prometheus metrics, Schema Registry REST API |
+| `FixtureKafkaGateway` | Deterministic tests and demos | JSON snapshots |
+
+This boundary lets the same tools run against real infrastructure or local fixtures.
+
+### Live-mode limitations
+
+- `hot_partition_skew` returns `unknown` because Kafka JMX does not expose per-partition throughput.
+- `schema_registry_compat` returns `unknown` because compatibility checks require a candidate schema and use a POST endpoint.
+- JMX responses are cached for five seconds within the live gateway to avoid repeated scrapes during one investigation.
+
+The live gateway has been verified against the three-broker Docker environment described in [docker.md](docker.md).
+
+## Missing data is not healthy data
+
+When a tool cannot find the requested topic, broker, consumer group, or schema subject, it returns:
+
+- `severity: unknown`;
+- an `observed.no_data_reason`; and
+- up to 20 known identifiers when available.
+
+It never turns missing data into `ok`. The grounding validator also prevents an `unknown` signal from being selected as the root cause.
+
+For `consumer_lag_trend`, only partitions with committed offsets contribute to lag. Partitions without committed offsets are listed separately instead of being treated as offset zero.
+
+See [ADR-0009](decisions/0009-no-data-is-unknown-not-ok.md).
+
+## Example
+
+```bash
 dp-ops-agent diagnose \
   --fixture tests/fixtures/kafka/urp_lag_spike_incident.json \
   --flink-fixture tests/fixtures/flink/healthy_baseline.json \
@@ -96,14 +97,28 @@ dp-ops-agent diagnose \
   --alert-text "PagerDuty: consumer lag alert on billing-svc/orders"
 ```
 
-Against the fixture (partition 7 of `orders` under-replicated, ISR shrunk to a single broker, consumer lag spiking on that partition only), the agent correctly identified broker 1's rising ISR-shrink rate as the earliest signal in the cascade, not the consumer lag that actually triggered the alert. It also ruled out rebalancing and hot-partition skew using the other signals it pulled:
+The fixture contains:
 
-> *"Broker 1 (leader for the affected partition) shows a critical, rising ISR-shrink rate, indicating it is actively evicting out-of-sync followers — the earliest observable signal in the cascade, preceding the under-replication and consumer lag."*
+- an under-replicated `orders` partition;
+- ISR shrinkage concentrated on broker 1; and
+- consumer lag growing on the affected partition.
 
-The resulting audit log (`logs/audit/{session_id}.jsonl`) contains the full sequence: `diagnosis_run_started`, then 7 `signal_collected` events, then `diagnosis_completed`.
+The agent identifies broker 1's rising ISR-shrink rate as the earliest observed cause, rather than stopping at the consumer-lag alert. It also checks rebalancing and partition skew as alternative explanations.
 
-## Testing without live Kafka
+The audit log is written to `logs/audit/{session_id}.jsonl`.
 
-- `tests/unit/test_kafka_tools.py`: calls each tool's `.ainvoke(args)` directly against `FixtureKafkaGateway`. No LLM involved.
-- `tests/integration/test_registry_wiring.py`: builds the tool list exactly as `orchestrator/session.py` does, and exercises the grounding validator end to end. A real signal cited correctly gets accepted, a fabricated `signal_id` gets rejected, empty evidence gets rejected.
-- `tests/integration/test_diagnose_loop.py`: the real loop against a live model. Opt-in only (`pytest -m llm`, needs `ANTHROPIC_API_KEY`). Asserts mechanically that evidence is grounded, rather than judging the prose.
+## Testing
+
+| Test area | File | What it verifies |
+| --- | --- | --- |
+| Tool behaviour | `tests/unit/test_kafka_tools.py` | Signal values and severity against fixtures |
+| Registry and grounding | `tests/integration/test_registry_wiring.py` | Valid evidence is accepted; fabricated or empty evidence is rejected |
+| Full agent loop | `tests/integration/test_diagnose_loop.py` | A live model calls tools and returns grounded output |
+
+The full-loop test is opt-in:
+
+```bash
+pytest -m llm
+```
+
+It requires `ANTHROPIC_API_KEY` and checks structural grounding rather than judging the diagnosis prose.

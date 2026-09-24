@@ -1,21 +1,46 @@
-# ADR-0004: Diagnose and propose only, no autonomous execution in v1
+# ADR-0004: Require human approval before remediation
 
-**Status:** Accepted
-**Date:** 2026-09-20
-
-## Context
-
-The agent's diagnostic tools are read-only, but the design was always intended to eventually support remediation: restarting a job, replaying a Kafka offset range, backfilling a dbt model. Those are state-changing, sometimes hard-to-reverse actions. The question was where to draw the autonomy line for the first version.
+| Status | Date |
+| --- | --- |
+| Accepted | 2026-09-20 |
 
 ## Decision
 
-v1's autonomy level is diagnose and propose. The agent always stops at a proposal. A human approves or rejects before anything touches production state. This is a scope boundary set in the original design, before any implementation, and it shapes the architecture even in phases where no execution tool exists yet. The permission boundary is planned to sit outside the LLM, in the tool layer itself: a future execution tool checks for a valid, unexpired approval record before running, rather than trusting the model's judgment that approval was given.
+The agent may diagnose an incident and propose a remediation, but it must not execute a state-changing action without explicit human approval.
+
+The approval boundary must be enforced outside the LLM.
+
+> **Current implementation:** diagnosis only. Proposal and execution capabilities have not been built yet.
+
+## Context
+
+Future remediation actions may include:
+
+- restarting a job;
+- replaying Kafka offsets; or
+- backfilling a dbt model.
+
+These actions change production state and may be difficult to reverse. Model confidence alone is not a sufficient permission mechanism.
+
+## Planned enforcement
+
+A future execution path must pass two independent checks:
+
+1. Middleware verifies that a valid, unexpired approval record exists.
+2. The execution tool repeats the check inside its handler.
+
+The model cannot grant approval to itself.
 
 ## Alternatives considered
 
-- **Autonomous execution from the start, gated only by a confidence score.** Rejected. A confidence score is still a model output. Trusting it to gate a state-changing action repeats the same problem evidence-grounding was built to avoid: an LLM's self-reported certainty is not a verifiable guarantee.
-- **No remediation capability at all, diagnosis-only, permanently.** Rejected as the end state, though it is the current state. The design explicitly scopes remediation as a later phase, tiered by blast radius and reversibility, once diagnostic accuracy is established. Not something to build before the diagnosis itself is trustworthy.
+| Alternative | Why it was rejected |
+| --- | --- |
+| Autonomous execution gated by model confidence | Confidence is also model output. It is not an independently verifiable safety boundary. |
+| Remain diagnosis-only permanently | Rejected as the end state. Low-risk remediation may be added after diagnostic reliability is demonstrated. |
 
 ## Consequences
 
-Every phase built so far, Kafka and Flink, is diagnose-only by construction. There is no execution tool to accidentally over-trust. When an execution tool is eventually built, this decision requires two independent gates: a middleware hook checking the approval store before a tool call executes, and a redundant in-handler check inside the tool itself, so a prompt-level mistake alone cannot skip the gate. Neither exists yet. This ADR is why that is still true.
+- Existing diagnostic tools remain read-only.
+- There is currently no execution tool that can be accidentally over-trusted.
+- Future remediation must be tiered by blast radius and reversibility.
+- Trust must be earned from audit history rather than assumed from model confidence.

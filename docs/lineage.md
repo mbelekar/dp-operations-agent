@@ -1,41 +1,93 @@
 # Lineage module
 
-**Status: Implemented (Phase 2b).** See [`kafka.md`](kafka.md) and [`flink.md`](flink.md) for the two modules this one connects, and [`dbt.md`](dbt.md) (Phase 3a) for the dbt module, whose symptoms get traced upstream through this one.
+> **Status:** Implemented in Phase 2b
 
-## What it does
+The lineage module connects system-specific diagnostics. It lets the agent start from a Kafka topic, Flink job, dbt model, or warehouse table and discover upstream dependencies.
 
-Kafka and Flink diagnostics investigate one system at a time. Lineage is what lets a diagnosis cross the boundary: given a Kafka topic or a Flink job, `walk_lineage_upstream` finds what's upstream of it, so an alert that fires on one system can be traced back to a root cause that actually lives on another. This is Phase 2's actual point. Phase 2a proved the Kafka and Flink tools individually; this module proves cross-system localization, not just single-system diagnosis done twice.
+Related modules: [Kafka](kafka.md) · [Flink](flink.md) · [dbt](dbt.md)
 
-## The flagship scenario
+## Why lineage matters
 
-An alert fires on Flink watermark lag. Every Flink-internal signal (backpressure, checkpoints, disk pressure, savepoint history) comes back healthy, there's nothing wrong inside Flink itself. The correct move is to call `walk_lineage_upstream` on the job, find the Kafka topic it reads from, and investigate that topic's own signals. There, `isr_churn` is critical: a broker is flaky, its ISR is shrinking, and that instability is what's starving the Flink source of timely data. A correct diagnosis cites the Kafka `isr_churn` signal as `root_cause_signal_id`, despite the alert being entirely Flink-worded. This is both a fixture (`tests/fixtures/{flink,kafka,lineage}/*cross_system*` / `*isr_churn_upstream*` / `flink_job_to_kafka_topic.json`) and the `cross_system_watermark_lag_to_isr_churn` eval scenario, verified against a live model, not just asserted structurally, the model does correctly cross the system boundary rather than stopping at "Flink watermark lag, cause unknown."
+Kafka and Flink tools can diagnose their own systems. Lineage lets one investigation cross the boundary between them:
 
-## Signals collected
+<p align="center">
+  <img src="diagrams/cross-system.png" width="360" alt="Cross-system localization: a Flink watermark alert with clean internal checks is traced by walk_lineage_upstream to its Kafka topic, where critical ISR churn makes Kafka the root system">
+</p>
 
-| Tool | File | What it detects |
+This is cross-system localization, not two unrelated single-system checks.
+
+## Tool
+
+| Tool | Purpose | Severity behaviour |
 | --- | --- | --- |
-| `walk_lineage_upstream` | `tools/lineage/tools.py` | What's upstream of a Kafka topic, Flink job, dbt model, or warehouse table, the trace step that makes cross-system root-causing possible |
+| `walk_lineage_upstream` | Finds upstream nodes for a known Kafka topic, Flink job, dbt model, or warehouse table | `ok` for a known node; `unknown` for a node absent from the graph |
 
-Unlike every other tool in this project, `walk_lineage_upstream`'s severity is never `warn` or `critical`. A lineage lookup isn't itself a health signal, it's graph structure. The actual health signal comes from whatever tool investigates the node lineage points to next. It is `ok` for a node the lineage graph knows, including one with nothing upstream, and `unknown` for a node the graph has never seen (`LineageGraphView.node_found` is `False`): an empty result there means "no lineage for this node", not "nothing upstream", and must not be read as the latter. See [ADR-0009](decisions/0009-no-data-is-unknown-not-ok.md).
+A lineage result is graph structure, not a health verdict. It is never `warn` or `critical`. The agent must investigate the returned upstream node with the appropriate diagnostic tools.
 
-## The gateway abstraction: one seam, two implementations
+For a known node, an empty upstream list means “this node has no recorded ancestors.” For an unknown node, an empty result means “no lineage data exists.” The module keeps those cases distinct with `LineageGraphView.node_found`.
 
-Same pattern as Kafka and Flink: every call goes through the `LineageQueryGateway` Protocol (`tools/lineage/gateway.py`), never calling Marquez's REST API directly.
+## Flagship scenario
 
-- **`LiveLineageGateway`** (`tools/lineage/live_gateway.py`): the real implementation. Uses `httpx` against Marquez's `GET /api/v1/lineage?nodeId=...&depth=...`. Marquez's raw response is the full graph (upstream and downstream) within `depth` hops, not just the upstream side, so this walks `inEdges` backward from the queried node to filter to ancestors only. Verified against a real Marquez 0.51.1 in the compose stack (see [`docs/docker.md`](docker.md)), seeded with the demo topology: the job resolves to `[dataset:kafka:orders]`, `dataset:kafka:orders-sink` to the job plus `orders` (two hops, downstream excluded), and `dataset:kafka:orders` to nothing. Marquez answers **404** for a node it has never seen; the gateway returns an empty view with `node_found=False` for that, matching `FixtureLineageGateway` for a node id missing from its snapshot, and the tool reports severity `unknown`, rather than raising and ending the whole session over a mistyped node id. Only that 404, recognized by Marquez's `"Job '…' not found."` / `"Dataset '…' not found."` body: any other 404 (a wrong path prefix or host in `MARQUEZ_URL`) raises and reaches the model as a tool error, not as an empty graph it could cite as "nothing upstream".
-- **`FixtureLineageGateway`** (`tools/lineage/fixture_gateway.py`): loads a JSON snapshot keyed by `node_id`, same contract as the other fixture gateways. Used by every test, the eval suite, and the CLI's `--lineage-fixture` flag.
+The cross-system evaluation starts with a Flink watermark-lag alert:
 
-## Node ID convention
+1. Flink reports critical watermark lag.
+2. Checkpoints, backpressure, disk pressure, and restore history are healthy.
+3. `walk_lineage_upstream` maps the job to the `orders` Kafka topic.
+4. Kafka diagnostics find critical ISR churn on broker 1.
+5. The diagnosis cites Kafka's `isr_churn` as `root_cause_signal_id`.
+6. `Diagnosis.system` is derived as `kafka`.
 
-Marquez doesn't dictate a node-naming scheme, so this project picks one and uses it everywhere, gateway implementations, fixtures, and the system prompt all agree on it: a Kafka topic is `dataset:kafka:{topic}`, a Flink job is `job:flink:{job_name}`, a dbt model is `job:dbt:{model_name}`, and a warehouse table (a dbt source, or a model's output) is `dataset:warehouse:{schema}.{table}`. The dbt tools compute these ids themselves and return them in each signal's `scope.lineage_node_id`, so a dbt symptom can be walked upstream without the model building an id (see [`dbt.md`](dbt.md#node-id-convention)). The live Marquez stack only has Kafka and Flink nodes; dbt nodes exist in fixtures so far. Documented once in `tools/lineage/gateway.py`'s module docstring rather than scattered across call sites.
+The scenario is implemented in fixtures and as the `cross_system_watermark_lag_to_isr_churn` live-model evaluation.
 
-## Why `Diagnosis.system` needed a real fix here
+## Gateway design
 
-Before this module, `Diagnosis.system` was derived from whichever `evidence_chain` entry came first in the model's list, safe only because every session's cited evidence was single-system (see [ADR-0006](decisions/0006-diagnosis-system-derived-not-asserted.md)). The flagship scenario breaks that assumption on purpose: it cites both a Flink signal and a Kafka signal in one evidence chain. `submit_diagnosis` now requires an explicit `root_cause_signal_id`, and `system` derives from that signal specifically, not from list position. See [ADR-0007](decisions/0007-root-cause-signal-id.md) for the full reasoning.
+The lineage tool depends on the `LineageQueryGateway` protocol.
 
-## Example run
+| Implementation | Purpose | Data source |
+| --- | --- | --- |
+| `LiveLineageGateway` | Real infrastructure | Marquez REST API |
+| `FixtureLineageGateway` | Deterministic tests and evaluations | JSON snapshots keyed by `node_id` |
 
-```
+### Live traversal
+
+Marquez returns both upstream and downstream nodes within the requested depth. `LiveLineageGateway` walks `inEdges` backwards from the requested node and returns ancestors only.
+
+The implementation has been verified against Marquez 0.51.1 using the Docker demo topology.
+
+### Error handling
+
+- A Marquez “job not found” or “dataset not found” response becomes `node_found: false` and `severity: unknown`.
+- An unrelated 404, such as a bad URL path, remains a tool error.
+- Server errors remain tool errors.
+
+This prevents a configuration problem from being misreported as “nothing upstream.”
+
+## Node IDs
+
+The project uses one naming convention across gateways, fixtures, tools, and prompts:
+
+| Node | Format | Example |
+| --- | --- | --- |
+| Kafka topic | `dataset:kafka:{topic}` | `dataset:kafka:orders` |
+| Flink job | `job:flink:{job_name}` | `job:flink:orders-processing-job` |
+| dbt model | `job:dbt:{model_name}` | `job:dbt:fct_orders` |
+| Warehouse table | `dataset:warehouse:{schema}.{table}` | `dataset:warehouse:raw.orders_sink` |
+
+dbt tools include the correct ID in `signal.scope.lineage_node_id`, so the model does not need to construct it.
+
+The live Marquez environment currently contains Kafka and Flink nodes. dbt lineage is fixture-based.
+
+## Root-system derivation
+
+A cross-system evidence chain may contain both Flink and Kafka signals. List position is therefore not a reliable way to determine the root system.
+
+`submit_diagnosis` requires an explicit `root_cause_signal_id`, then derives `Diagnosis.system` from that signal.
+
+See [ADR-0006](decisions/0006-diagnosis-system-derived-not-asserted.md) and [ADR-0007](decisions/0007-root-cause-signal-id.md).
+
+## Example
+
+```bash
 dp-ops-agent diagnose \
   --fixture tests/fixtures/kafka/isr_churn_upstream_incident.json \
   --flink-fixture tests/fixtures/flink/watermark_lag_cross_system_incident.json \
@@ -44,15 +96,25 @@ dp-ops-agent diagnose \
   --alert-text "PagerDuty: watermark lag alert on orders-processing-job"
 ```
 
-Against this fixture, the agent investigated Flink first (matching the alert), found only watermark lag critical and everything else clean, called `walk_lineage_upstream` and found the upstream `orders` topic, then investigated Kafka and found broker 1's ISR-shrink rate critical while its peers were quiet. The resulting diagnosis correctly set `system: "kafka"` and `root_cause_signal_id` to the `isr_churn` signal, not the Flink signal that triggered the alert.
+The agent begins with Flink, follows lineage to Kafka, and returns `system: kafka` with the Kafka `isr_churn` signal as the root cause.
 
-## Testing without live Marquez
+## Testing
 
-- `tests/unit/test_lineage_tools.py`: calls the tool's `.ainvoke(args)` directly against `FixtureLineageGateway`. No LLM involved, mirrors the Kafka and Flink unit test pattern.
-- `tests/integration/test_registry_wiring.py`: includes a flagship-fixture wiring test, confirming the full three-fixture set produces the expected severities and that a diagnosis citing the Kafka signal as `root_cause_signal_id` correctly derives `system == "kafka"`.
-- `evals/scenarios.py`: the `cross_system_watermark_lag_to_isr_churn` scenario, run via `./auto/eval` against a live model, the one eval scenario that actually validates cross-system localization rather than single-system diagnosis.
-- `tests/unit/test_lineage_live_gateway.py`: `LiveLineageGateway` against an `httpx.MockTransport` serving a response shape captured from real Marquez: unknown-node 404 → empty view with `node_found=False`, any other 404 (wrong path/host) → raises, 500 → raises, two-hop walk → ancestors only.
+| Test area | File | What it verifies |
+| --- | --- | --- |
+| Tool behaviour | `tests/unit/test_lineage_tools.py` | Fixture traversal and unknown-node handling |
+| Cross-system wiring | `tests/integration/test_registry_wiring.py` | Expected severities and Kafka root-system derivation |
+| Live gateway | `tests/unit/test_lineage_live_gateway.py` | Marquez response parsing, ancestor filtering, and error handling |
+| Agent evaluation | `evals/scenarios.py` | A live model crosses from Flink to Kafka |
 
-## Running against live Marquez
+## Live Marquez
 
-`./auto/live-up` stands up Marquez seeded with the demo job's lineage, see [`docs/docker.md`](docker.md). In a live run with the alert `"PagerDuty: watermark lag alert on orders-processing-job"`, the agent found Flink watermark lag critical and backpressure clean, called `walk_lineage_upstream("job:flink:orders-processing-job")`, got `dataset:kafka:orders` back from Marquez, and went on to investigate that topic with the Kafka tools, concluding with `system: "kafka"`. Unlike the fixture scenario, there's no injected fault in the live stack, so what the model concludes about the cause varies; the point of the live run is that the lineage step crosses the system boundary against real infra.
+Start the seeded environment with:
+
+```bash
+./auto/live-up
+```
+
+See [docker.md](docker.md) for the complete workflow.
+
+The live environment proves that lineage traversal works against real infrastructure. It does not inject the fixture's Kafka fault, so the model's final causal conclusion may differ from the labeled evaluation scenario.

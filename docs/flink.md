@@ -4,7 +4,7 @@
 
 ## What it does
 
-Given an incident alert naming a Flink job (e.g. "repeated checkpoint failures on orders-processing-job"), the agent investigates using five read-only Flink diagnostic tools, on top of the six Kafka tools from Phase 1, all in the same session. The grounding mechanism is identical to Kafka's: every claim in the final diagnosis has to trace back to a real tool call. See [`kafka.md`'s grounding section](kafka.md#grounding-how-the-evidence-chain-is-enforced) rather than repeating it here. The mechanism is shared code (`evidence/schema.py`, `tools/registry.py`), not reimplemented per module.
+Given an incident alert naming a Flink job (e.g. "repeated checkpoint failures on orders-processing-job"), the agent investigates using five read-only Flink diagnostic tools, on top of the six Kafka tools from Phase 1, all in the same session. The grounding mechanism is identical to Kafka's: every claim in the final diagnosis has to trace back to a real tool call. See [`kafka.md`'s grounding section](kafka.md#evidence-grounding) rather than repeating it here. The mechanism is shared code (`evidence/schema.py`, `tools/registry.py`), not reimplemented per module.
 
 ## Signals collected
 

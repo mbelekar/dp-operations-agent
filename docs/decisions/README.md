@@ -1,13 +1,17 @@
 # Architecture decisions
 
-Short records of decisions that shaped this codebase: what was chosen, what was considered and rejected, and why. Extracted from the working plan docs in `docs/plans/` (kept locally, not committed), so the reasoning behind the architecture is visible without needing those files.
+These records explain the choices that shaped the project, the alternatives considered, and the resulting trade-offs.
 
-- [ADR-0001: A single tool-calling loop, not multi-agent orchestration](0001-single-tool-calling-loop.md)
-- [ADR-0002: Evidence grounding is enforced in code, not requested in the prompt](0002-deterministic-evidence-grounding.md)
-- [ADR-0003: A gateway Protocol between tools and infrastructure, not direct API calls](0003-gateway-abstraction.md)
-- [ADR-0004: Diagnose and propose only, no autonomous execution in v1](0004-human-approved-remediation.md)
-- [ADR-0005: Deterministic eval grading, not LLM-as-judge, for the first version](0005-deterministic-eval-grading.md)
-- [ADR-0006: `Diagnosis.system` is derived from cited evidence, not asserted](0006-diagnosis-system-derived-not-asserted.md)
-- [ADR-0007: `submit_diagnosis` requires an explicit `root_cause_signal_id`](0007-root-cause-signal-id.md)
-- [ADR-0008: dbt's "previous run" is its `--state` directory, and column shapes come from `catalog.json`](0008-dbt-previous-run-via-state-dir.md)
-- [ADR-0009: A tool that finds no data reports severity `unknown`, not `ok`](0009-no-data-is-unknown-not-ok.md)
+| ADR | Decision |
+| --- | --- |
+| [0001](0001-single-tool-calling-loop.md) | Use one tool-calling agent instead of multiple agents |
+| [0002](0002-deterministic-evidence-grounding.md) | Enforce evidence grounding in code |
+| [0003](0003-gateway-abstraction.md) | Place gateway protocols between tools and infrastructure |
+| [0004](0004-human-approved-remediation.md) | Require human approval before remediation execution |
+| [0005](0005-deterministic-eval-grading.md) | Start with deterministic evaluation grading |
+| [0006](0006-diagnosis-system-derived-not-asserted.md) | Derive the diagnosed system from cited evidence |
+| [0007](0007-root-cause-signal-id.md) | Require an explicit root-cause signal ID |
+| [0008](0008-dbt-previous-run-via-state-dir.md) | Use dbt state artifacts for previous-run comparison |
+| [0009](0009-no-data-is-unknown-not-ok.md) | Report missing data as `unknown`, not `ok` |
+
+The ADRs were extracted from working plans so the architectural reasoning remains visible in the repository.

@@ -1,24 +1,61 @@
-# ADR-0008: dbt's "previous run" is its `--state` directory, and column shapes come from `catalog.json`
+# ADR-0008: Compare dbt runs through state artifacts
 
-**Status:** Accepted
-**Date:** 2026-09-24
-
-## Context
-
-The dbt module's core discipline (see [`docs/dbt.md`](../dbt.md)) is telling "the model's logic is wrong" apart from "the model is correct but its inputs are bad", by checking whether a failing test passed on the previous run with no change to the model's code. That needs two runs' artifacts and a definition of "code changed". Separately, `dependency_graph_compile_error` needs each upstream table's actual columns in both runs, and Design.md specified a `manifest.json` diff for that.
+| Status | Date |
+| --- | --- |
+| Accepted | 2026-09-24 |
 
 ## Decision
 
-**The previous run is the directory dbt's own `--state` flag points at**, holding a copy of an earlier run's `target/` artifacts. "Code changed" means the model's `checksum` in the current `manifest.json` differs from the one in the state manifest, the same comparison dbt's `state:modified` selector makes. With no previous run, the tools report `previously_passed` and `model_code_changed` as `null`, never `false`: `false` would quietly steer the model toward "the model's logic is fine".
+Use dbt's state directory as the previous run and `catalog.json` as the source of actual column shapes.
 
-**Column shapes come from `catalog.json`**, which `dbt docs generate` writes from the warehouse itself. Upstream nodes and checksums still come from `manifest.json`.
+More specifically:
+
+- The previous run is an earlier `target/` directory saved for dbt's `--state` workflow.
+- A model changed when its current `manifest.json` checksum differs from the state manifest.
+- Actual columns and types come from `catalog.json`.
+- Upstream relationships and checksums continue to come from `manifest.json`.
+
+## Context
+
+The dbt module must distinguish between two cases:
+
+```text
+Model logic changed → investigate the dbt model
+Model unchanged      → investigate upstream inputs
+```
+
+That decision requires previous-run results and a deterministic definition of “code changed.” Schema-change diagnosis also needs actual warehouse column shapes.
+
+## Unknown previous state
+
+If no previous run exists:
+
+- `previously_passed` is `null`;
+- `model_code_changed` is `null`.
+
+The values are not set to `false`, because false would incorrectly suggest that the model is unchanged and its logic is safe.
 
 ## Alternatives considered
 
-- **Diff `manifest.json` columns, as Design.md specified.** Rejected. A manifest's `columns` list only the columns someone documented in YAML, often none, with declared rather than actual types. An upstream table gaining, losing, or retyping an undocumented column would diff as "no change", a false all-clear the model could cite as evidence.
-- **Let the model judge whether code changed**, e.g. from compiled SQL. Rejected, for the same reason as ADR-0002 and ADR-0006: a deterministic fact that can be computed from artifacts shouldn't be delegated to the model.
-- **A dbt Cloud API client** for run history. Deferred, not rejected: Cloud's run artifacts have the same shapes, so a Cloud gateway can sit behind the same Protocol later. The local `target/` + `--state` pair can be tested offline against real artifact files; a Cloud client can't be without an account.
+| Alternative | Why it was rejected or deferred |
+| --- | --- |
+| Diff columns declared in `manifest.json` | Rejected. Manifest columns reflect YAML documentation, not necessarily the actual warehouse schema. Undocumented changes could appear unchanged. |
+| Ask the model whether compiled SQL changed | Rejected. A deterministic artifact comparison should not be delegated to an LLM. |
+| Use the dbt Cloud API for history | Deferred. Cloud artifacts can later fit behind the same gateway protocol, while local files are testable without an account. |
 
-## Consequences
+## Operational consequence
 
-A live run needs a disciplined dbt run order, verified against real dbt-core 1.12.5: every dbt command overwrites `run_results.json`, `dbt docs generate` included, so the usable order is `source freshness` → `docs generate` → `build`, and the gateway rejects a `run_results.json` not written by `build`/`run`/`test` instead of misreading it. Under that order `catalog.json` lags one build behind, enough to catch an upstream schema change. Without `docs generate` at all, `dependency_graph_compile_error` reports the catalog as unavailable rather than guessing. And someone, or some scheduler step, has to copy `target/` aside after each run for the next run to have a previous one.
+dbt commands overwrite `run_results.json`, including `dbt docs generate`. Use this order:
+
+```bash
+dbt source freshness
+dbt docs generate
+dbt build
+cp -R target/ <state-dir>
+```
+
+The gateway accepts run results produced by `build`, `run`, or `test`. It rejects artifacts overwritten by another command rather than interpreting them incorrectly.
+
+Under this order, `catalog.json` is one build behind. That is sufficient to detect an upstream schema change. Without `catalog.json`, the relevant tool returns `unknown` rather than guessing.
+
+See the [dbt module documentation](../dbt.md).

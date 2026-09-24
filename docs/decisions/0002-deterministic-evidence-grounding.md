@@ -1,21 +1,45 @@
-# ADR-0002: Evidence grounding is enforced in code, not requested in the prompt
+# ADR-0002: Enforce evidence grounding in code
 
-**Status:** Accepted
-**Date:** 2026-09-20
-
-## Context
-
-An LLM asked to "only make claims backed by evidence" will still sometimes assert something it never actually checked. That's a prompting instruction, not a guarantee. This project's core safety requirement is that a diagnosis can be trusted to cite only real, collected data.
+| Status | Date |
+| --- | --- |
+| Accepted | 2026-09-20 |
 
 ## Decision
 
-The model cannot just assert a diagnosis. Every diagnostic tool returns a typed, pydantic-validated `Signal`, never free text. All signals collected during a session are tracked server-side in a shared `collected_signals` list, not restated by the model. When the model calls `submit_diagnosis`, the final `Diagnosis` is assembled from that list. The model only supplies `signal_id` references in its `evidence_chain`. A `model_validator` on `Diagnosis` (`evidence_chain_is_grounded`) runs at construction time and rejects the diagnosis, as a tool error that forces a retry, if `evidence_chain` or `signals` is empty, or if any cited `signal_id` was not actually collected that session.
+Require every diagnosis to cite typed signals collected through tools during the current session. Validate this requirement in code rather than relying on the prompt.
+
+## Context
+
+An instruction such as “only make claims supported by evidence” does not guarantee that an LLM will comply. The project needs a deterministic boundary between model reasoning and accepted output.
+
+## How it works
+
+1. Each diagnostic tool returns a Pydantic-validated `Signal`.
+2. The application stores every signal in a server-side `collected_signals` list.
+3. The model supplies only `signal_id` references in its `evidence_chain`.
+4. The application builds the final `Diagnosis` from the stored signals.
+5. `Diagnosis.evidence_chain_is_grounded` rejects the diagnosis if:
+   - no signals were collected;
+   - the evidence chain is empty; or
+   - any cited ID was not collected in that session.
+
+A rejected `submit_diagnosis` call becomes a tool error, allowing the model to retry with valid evidence.
 
 ## Alternatives considered
 
-- **Prompt instruction only** ("cite only real evidence"). Rejected as the sole mechanism. It is the same LLM-nondeterminism problem the rest of the design is built to avoid. Kept as a secondary layer, the system prompt does instruct this, but never relied on alone.
-- **Trusting the model to restate signal payloads it wants to cite.** Rejected. Restating invites transcription drift, the model paraphrasing a number instead of quoting it, and makes grounding unverifiable, since there would be no independent record to check the restated value against.
+| Alternative | Why it was rejected |
+| --- | --- |
+| Prompt instruction only | Prompt compliance is probabilistic and cannot provide a guarantee. The instruction remains as a secondary layer. |
+| Let the model restate signal values | Restating values allows transcription errors and paraphrasing, and makes independent verification harder. |
 
 ## Consequences
 
-This is the one property every diagnostic module is built around. Adding Flink or dbt tools does not require touching this mechanism, they just emit `Signal`s into the same shared list. The cost is a small amount of plumbing (`collected_signals` closures, the shared audit sink) that has to be wired correctly by every tool module. The registry wiring tests were written specifically to catch a tool that doesn't wire in correctly.
+### Benefits
+
+- Unsupported evidence IDs cannot enter an accepted diagnosis.
+- New modules reuse the same grounding mechanism by emitting `Signal` objects.
+- The audit trail retains the original evidence independently of the model's wording.
+
+### Cost
+
+Every tool module must use the shared signal registry and audit sink correctly. Registry-wiring tests protect this integration point.

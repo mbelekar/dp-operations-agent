@@ -1,21 +1,47 @@
-# ADR-0005: Deterministic eval grading, not LLM-as-judge, for the first version
+# ADR-0005: Start with deterministic evaluation grading
 
-**Status:** Accepted
-**Date:** 2026-09-21
-
-## Context
-
-Unit and integration tests check code correctness, does a tool compute severity correctly for known fixture data, and grounding enforcement, does the validator reject ungrounded evidence. Neither checks whether the agent's actual diagnosis is right. Closing that gap needed a way to grade a live model's output against a known-correct answer, automatically.
+| Status | Date |
+| --- | --- |
+| Accepted | 2026-09-21 |
 
 ## Decision
 
-Each eval scenario declares an `expected_signal_type`, the signal type that represents the true root cause. A run passes if that signal type appears among the signals actually cited in the final `evidence_chain`, not merely collected during the session. This reuses the same typed evidence contracts the grounding validator already enforces, instead of judging the model's prose.
+Grade each evaluation by checking whether the final evidence chain cites the expected root-cause signal type.
+
+Do not use an LLM judge in the first evaluation version.
+
+## Context
+
+The test suite verifies that tools calculate signals correctly and that grounding rejects unsupported evidence. It does not verify that a live model chooses the correct diagnosis.
+
+Each labeled incident therefore defines an `expected_signal_type`. An evaluation passes only when that signal type appears in the submitted `evidence_chain`.
+
+Merely collecting the right signal is not enough. The model must use it in the diagnosis.
 
 ## Alternatives considered
 
-- **LLM-as-judge grading** (a second model call scoring the hypothesis text). Deferred, not rejected outright. It adds another model call, another prompt to maintain, and non-determinism inside the grader itself, on top of the non-determinism already being measured in the thing under test. Worth adding later for dimensions that cannot be reduced to a structured field, is this hypothesis actually a reasonable explanation a human would trust. Not needed to get a working, trustworthy eval loop first.
-- **Keyword matching on `root_cause_hypothesis` free text.** Rejected. Fragile to wording changes, would need constant retuning as the system prompt evolves, and produces false confidence: a keyword match does not confirm the model actually grounded that claim in real evidence, only that it used the right word.
+| Alternative | Decision |
+| --- | --- |
+| LLM-as-judge over the hypothesis text | Deferred. It adds cost, another prompt, and nondeterminism to the grader. It may later assess qualities that structured fields cannot capture. |
+| Keyword matching over `root_cause_hypothesis` | Rejected. It is fragile to wording and does not prove that the claim was grounded in cited evidence. |
 
 ## Consequences
 
-Every eval scenario doubles as a fixture used elsewhere in the test suite. One incident definition serves both code-level and agent-level testing, instead of two parallel, drifting sets of incident data. The known limitation, stated plainly: this checks "cited the right root-cause signal," a single pass or fail per run, not a richer breakdown (root system correct vs. causal chain correct vs. unsupported claims). It is also single-shot per scenario, not repeated and averaged to smooth over the model's own sampling variance. Both are reasonable next steps if the eval suite needs to carry more weight than a starting signal.
+### Benefits
+
+- Grading is deterministic.
+- It reuses the typed evidence contract.
+- Incident fixtures support both code tests and agent evaluations.
+
+### Limitations
+
+The initial grade answers one narrow question: **did the diagnosis cite the expected root-cause signal type?**
+
+It does not separately score:
+
+- root system accuracy;
+- causal-chain quality;
+- hypothesis usefulness; or
+- repeated-run reliability.
+
+Those dimensions can be added when the evaluation suite needs to provide stronger evidence than a starting pass/fail signal.

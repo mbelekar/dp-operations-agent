@@ -51,7 +51,16 @@ def _total_usage(messages: list) -> TokenUsage:
         usage.input_tokens += meta.get("input_tokens", 0)
         usage.output_tokens += meta.get("output_tokens", 0)
         usage.cache_read_tokens += details.get("cache_read", 0) or 0
-        usage.cache_creation_tokens += details.get("cache_creation", 0) or 0
+        # langchain-anthropic reports cache_creation as 0 and moves the writes
+        # to per-TTL keys when Anthropic breaks them down by cache lifetime.
+        usage.cache_creation_tokens += sum(
+            details.get(key, 0) or 0
+            for key in (
+                "cache_creation",
+                "ephemeral_5m_input_tokens",
+                "ephemeral_1h_input_tokens",
+            )
+        )
         usage.model_calls += 1
     return usage
 

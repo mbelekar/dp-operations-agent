@@ -177,3 +177,27 @@ async def test_agent_is_built_with_prompt_caching(tmp_path, monkeypatch):
     await _run(tmp_path, monkeypatch, ValueError("unused"), fail=False)
 
     assert any(isinstance(m, AnthropicPromptCachingMiddleware) for m in built["middleware"])
+
+
+def test_cache_writes_reported_by_ttl_are_counted():
+    # langchain-anthropic (chat_models.py) reports cache_creation=0 and puts
+    # the writes under per-TTL keys when Anthropic breaks them down that way,
+    # which is what a real Sonnet run returned.
+    from dp_ops_agent.orchestrator.session import _total_usage
+
+    reply = AIMessage(
+        content="",
+        usage_metadata={
+            "input_tokens": 5000,
+            "output_tokens": 50,
+            "total_tokens": 5050,
+            "input_token_details": {
+                "cache_read": 0,
+                "cache_creation": 0,
+                "ephemeral_5m_input_tokens": 4200,
+                "ephemeral_1h_input_tokens": 0,
+            },
+        },
+    )
+
+    assert _total_usage([reply]).cache_creation_tokens == 4200

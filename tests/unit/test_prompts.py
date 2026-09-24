@@ -32,3 +32,11 @@ def test_session_prompt_says_unknown_severity_is_not_health():
     assert 'severity "unknown"' in prompt
     assert "no_data_reason" in prompt
     assert "not evidence" in prompt
+
+
+def test_session_prompt_caps_retries_after_unknown_and_forbids_invented_names():
+    prompt = render_system_prompt(phase=3)
+
+    assert "at most once" in prompt
+    assert "known_" in prompt
+    assert "Never make up" in prompt

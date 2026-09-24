@@ -75,7 +75,7 @@ Every tool talks to Kafka through the `KafkaMetricsGateway` Protocol (`tools/kaf
 
 ## When a tool finds no data
 
-A tool that finds nothing for the identifiers it was given (an unknown topic, broker, consumer group, or schema subject) reports severity `unknown` with an `observed.no_data_reason`, never `ok`: no data is not evidence of health, and the grounding validator won't accept an `unknown` signal as the root cause. `consumer_lag_trend` measures lag only on partitions the group has a committed offset for, listing the rest in `partitions_without_committed_offset`; it used to read a missing offset as 0 and report the whole topic as lag. See [ADR-0009](decisions/0009-no-data-is-unknown-not-ok.md).
+A tool that finds nothing for the identifiers it was given (an unknown topic, broker, consumer group, or schema subject) reports severity `unknown` with an `observed.no_data_reason`, never `ok`: no data is not evidence of health, and the grounding validator won't accept an `unknown` signal as the root cause. The `unknown` result also names what does exist (`known_topics`, `known_groups`, `known_brokers`, or `known_subjects`, capped at 20), or, when the identifier is real but has no data (a topic live mode never reports per-partition throughput for, a subject with no compatibility verdict), says so and not to retry it; the system prompt allows one retry, only with a known identifier. `consumer_lag_trend` measures lag only on partitions the group has a committed offset for, listing the rest in `partitions_without_committed_offset`; it used to read a missing offset as 0 and report the whole topic as lag. See [ADR-0009](decisions/0009-no-data-is-unknown-not-ok.md).
 
 ## Grounding: how the evidence chain is enforced
 

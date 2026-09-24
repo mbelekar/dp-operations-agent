@@ -199,7 +199,8 @@ async def test_unknown_model_is_reported_not_found(tmp_path):
 
     assert signal.severity == "unknown"
     assert signal.observed["model_found"] is False
-    assert signal.observed["no_data_reason"]
+    assert signal.observed["known_models"] == ["fct_orders", "stg_orders"]
+    assert "stg_orders" in signal.observed["no_data_reason"]
 
 
 @pytest.mark.asyncio
@@ -283,6 +284,8 @@ async def test_freshness_unknown_source_is_reported_not_found(tmp_path):
 
     assert signal.severity == "unknown"
     assert signal.observed["source_found"] is False
+    assert signal.observed["known_sources"] == ["raw.orders_sink"]
+    assert "raw.orders_sink" in signal.observed["no_data_reason"]
 
 
 @pytest.mark.asyncio

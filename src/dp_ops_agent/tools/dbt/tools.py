@@ -31,6 +31,7 @@ from dp_ops_agent.tools.dbt.gateway import (
     ManifestView,
     RunResultsView,
 )
+from dp_ops_agent.tools.known_identifiers import capped, describe
 
 _FAILING_TEST_STATUSES = ("fail", "error")
 _STALE_FRESHNESS_STATUSES = ("error", "runtime error")
@@ -134,11 +135,18 @@ def build_dbt_tools(
         )
         return _record_signal(audit, session_id, collected_signals, signal)
 
-    def _model_not_found(name: str, model: str) -> str:
+    def _model_not_found(name: str, model: str, manifest: ManifestView) -> str:
+        known = sorted(n.name for n in manifest.nodes.values() if n.resource_type == "model")
         return _signal(
             name,
             {"model": model},
-            {"model_found": False, "no_data_reason": f"no dbt model named {model!r} in the manifest"},
+            {
+                "model_found": False,
+                "known_models": capped(known),
+                "no_data_reason": (
+                    f"no dbt model named {model!r} in the manifest; known models: {describe(known)}"
+                ),
+            },
             "unknown",
             "dbt:target/manifest.json",
         )
@@ -155,7 +163,7 @@ def build_dbt_tools(
         manifest = gateway.manifest("current")
         node = _find_model(manifest, model)
         if node is None:
-            return _model_not_found("test_failure", model)
+            return _model_not_found("test_failure", model, manifest)
         run_results = gateway.run_results("current")
         state_manifest = gateway.manifest("state")
         state_run_results = gateway.run_results("state")
@@ -237,7 +245,7 @@ def build_dbt_tools(
         manifest = gateway.manifest("current")
         node = _find_model(manifest, model)
         if node is None:
-            return _model_not_found("model_run_failure", model)
+            return _model_not_found("model_run_failure", model, manifest)
         run_results = gateway.run_results("current")
         result = run_results.results.get(node.unique_id)
         status = result.status if result is not None else "not_run"
@@ -287,12 +295,19 @@ def build_dbt_tools(
             None,
         )
         if node is None:
+            known_sources = sorted(
+                _display_name(n) for n in manifest.nodes.values() if n.resource_type == "source"
+            )
             return _signal(
                 "freshness_check_failure",
                 {"source": source},
                 {
                     "source_found": False,
-                    "no_data_reason": f"no dbt source named {source!r} in the manifest",
+                    "known_sources": capped(known_sources),
+                    "no_data_reason": (
+                        f"no dbt source named {source!r} in the manifest; known sources "
+                        f"(source_name.table_name): {describe(known_sources)}"
+                    ),
                 },
                 "unknown",
                 "dbt:target/manifest.json",
@@ -340,7 +355,7 @@ def build_dbt_tools(
         manifest = gateway.manifest("current")
         node = _find_model(manifest, model)
         if node is None:
-            return _model_not_found("incremental_model_drift", model)
+            return _model_not_found("incremental_model_drift", model, manifest)
         run_results = gateway.run_results("current")
         state_run_results = gateway.run_results("state")
         current = run_results.results.get(node.unique_id)
@@ -409,7 +424,7 @@ def build_dbt_tools(
         manifest = gateway.manifest("current")
         node = _find_model(manifest, model)
         if node is None:
-            return _model_not_found("dependency_graph_compile_error", model)
+            return _model_not_found("dependency_graph_compile_error", model, manifest)
         run_results = gateway.run_results("current")
         catalog = gateway.catalog("current")
         state_catalog = gateway.catalog("state")

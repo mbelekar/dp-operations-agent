@@ -64,7 +64,7 @@ $ export LANGSMITH_API_KEY=ls__...
 $ ./auto/test
 ```
 
-144/144 offline tests pass with no live dependency (Kafka, Flink, Marquez, dbt, or Anthropic). Args pass through, so `./auto/test -m llm` also runs the full loop against a live model.
+156/156 offline tests pass with no live dependency (Kafka, Flink, Marquez, dbt, or Anthropic). Args pass through, so `./auto/test -m llm` also runs the full loop against a live model.
 
 This suite checks code correctness, not agent evaluation. It checks that each tool computes the right severity for known fixture data, and that the grounding validator rejects an ungrounded or empty evidence chain. Even the live-model test only checks structural properties (a tool was called, the evidence chain is grounded), not whether the diagnosis is actually correct.
 

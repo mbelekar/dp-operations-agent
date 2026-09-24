@@ -40,3 +40,21 @@ def test_session_prompt_caps_retries_after_unknown_and_forbids_invented_names():
     assert "at most once" in prompt
     assert "known_" in prompt
     assert "Never make up" in prompt
+
+
+def test_retry_cap_is_scoped_to_retries_and_says_where_broker_ids_come_from():
+    # Regression: an unscoped "never make up a broker" stopped the model from
+    # ever calling isr_churn, since no tool result labels anything a broker.
+    prompt = render_system_prompt(phase=3)
+
+    assert "retrying after an unknown result" in prompt
+    assert "replicas" in prompt and "broker ids" in prompt
+
+
+def test_isr_churn_description_says_where_broker_ids_come_from(tmp_path):
+    from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
+    from dp_ops_agent.tools.kafka.tools import build_kafka_tools
+
+    tools = {t.name: t for t in build_kafka_tools(None, JsonlAuditSink(tmp_path, "s"), "s", [])}
+
+    assert "replicas" in tools["isr_churn"].description

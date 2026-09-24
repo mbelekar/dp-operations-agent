@@ -44,7 +44,7 @@ Missing artifacts follow one rule set in both implementations:
 - Anything missing from the previous run means there is no previous run: `previously_passed` and `model_code_changed` come back `null`.
 - A missing `catalog.json`, in either run, is reported as unavailable (severity `unknown`), not an error.
 
-More generally, whenever a tool has nothing to judge (an unknown model or source, no test on the model ran, a model missing from the latest run, a source with no freshness result, no row counts to compare) it reports severity `unknown` with an `observed.no_data_reason`, never `ok`. See [ADR-0009](decisions/0009-no-data-is-unknown-not-ok.md).
+More generally, whenever a tool has nothing to judge (an unknown model or source, no test on the model ran, a model missing from the latest run, a source with no freshness result, no row counts to compare) it reports severity `unknown` with an `observed.no_data_reason`, never `ok`. An unknown model or source name also lists the ones in the manifest (`known_models`, `known_sources`). See [ADR-0009](decisions/0009-no-data-is-unknown-not-ok.md).
 
 ## Running dbt so its artifacts are usable
 

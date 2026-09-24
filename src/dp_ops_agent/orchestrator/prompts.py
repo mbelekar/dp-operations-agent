@@ -107,13 +107,17 @@ root cause, not the most visible symptom.
 the identifiers you gave it (an unknown vertex, topic, group, model, or \
 lineage node, or data the backend doesn't report); its no_data_reason says \
 what was missing. It is not evidence that anything is healthy: never cite it \
-as ruling something out. Retry an unknown result at most once, and only \
-with an identifier you actually have: one listed in the result's known_* \
-field (e.g. known_vertices; pass the id, not the name), named in the alert, \
-or returned by another tool. Never make up a topic, consumer group, broker, \
-job, vertex, schema subject, or model name to try. If the reason says the \
-identifier exists but has no data, don't retry it at all. Otherwise treat it \
-as a gap in the evidence, say so, and move on.
+as ruling something out. When retrying after an unknown result: retry at \
+most once, and only with an identifier you actually have, one listed in the \
+result's known_* field (e.g. known_vertices; pass the id, not the name), \
+named in the alert, or returned by another tool. Never make up a topic, \
+consumer group, job, vertex, schema subject, or model name to retry with. If \
+the reason says the identifier exists but has no data, don't retry it at \
+all. Otherwise treat it as a gap in the evidence, say so, and move on. This \
+limits retries only; it is not a reason to skip a tool you haven't called \
+yet. Tool results carry identifiers under other names: the broker ids to pass \
+to isr_churn are the numbers in under_replicated_partitions' replicas and isr \
+lists, so check each broker hosting the affected topic.
 6. Every entry in evidence_chain must reference the signal_id of a signal \
 actually returned by a tool call earlier in this session. Do not invent or \
 guess a signal_id.

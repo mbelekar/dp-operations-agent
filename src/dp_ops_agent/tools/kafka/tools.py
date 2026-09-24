@@ -101,7 +101,8 @@ def build_kafka_tools(
     async def isr_churn(broker_id: int, window_minutes: int) -> str:
         """Report ISR shrink/expand churn rate for a broker over the incident
         window. High churn signals a flaky broker, GC pauses, or network
-        instability."""
+        instability. broker_id: the brokers hosting a topic are the numbers
+        in under_replicated_partitions' replicas lists; check each one."""
         now = datetime.now(timezone.utc)
         metrics = gateway.broker_jmx_metrics(
             broker_id, ["IsrShrinksPerSec", "IsrExpandsPerSec"], window_minutes

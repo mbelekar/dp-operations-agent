@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
 import typer
 from dotenv import load_dotenv
 
+from dp_ops_agent.approvals.store import ProposalRecord, find_proposal, record_decision
 from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
 from dp_ops_agent.evidence.schema import Proposal
 from dp_ops_agent.orchestrator.session import DiagnosisNotSubmittedError, run_diagnosis
@@ -220,6 +223,72 @@ def _echo_proposal(proposal: Proposal | None) -> None:
     typer.echo("  Warnings:")
     for warning in proposal.warnings:
         typer.echo(f"    - {warning}")
+
+
+_LOG_DIR_OPTION = typer.Option(
+    os.environ.get("AUDIT_LOG_DIR", "logs/audit"), help="Directory of session audit logs"
+)
+
+
+def _parse_duration(text: str) -> timedelta:
+    match = re.fullmatch(r"(\d+)([mh])", text.strip())
+    if not match:
+        raise typer.BadParameter("use minutes or hours, e.g. 30m or 2h")
+    amount, unit = int(match.group(1)), match.group(2)
+    return timedelta(minutes=amount) if unit == "m" else timedelta(hours=amount)
+
+
+def _load_proposal(proposal_id: str, log_dir: str) -> ProposalRecord:
+    record = find_proposal(log_dir, proposal_id)
+    if record is None:
+        typer.echo(f"FAILED: no proposal {proposal_id} in {log_dir}", err=True)
+        raise typer.Exit(code=1)
+    return record
+
+
+def _decide(record: ProposalRecord, decision: str, reviewer: str, reason: str | None,
+            expires_in: timedelta = timedelta(hours=1)):
+    # --reviewer is recorded as given: there is no authentication (ADR-0011).
+    _echo_proposal(record.proposal)
+    try:
+        return record_decision(
+            record, decision, reviewer=reviewer, now=datetime.now(timezone.utc),
+            reason=reason, expires_in=expires_in,
+        )
+    except ValueError as exc:
+        typer.echo(f"FAILED: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@app.command()
+def approve(
+    proposal_id: str = typer.Argument(..., help="The proposal to approve"),
+    reviewer: str = typer.Option(..., help="Who is approving (recorded as given, not verified)"),
+    expires_in: str = typer.Option("1h", help="How long the approval stays usable, e.g. 30m or 2h"),
+    reason: str | None = typer.Option(None, help="Optional reasoning, kept in the audit log"),
+    log_dir: str = _LOG_DIR_OPTION,
+) -> None:
+    """Approve a Tier 1 proposal so `execute` may run it. Nothing runs yet."""
+    duration = _parse_duration(expires_in)
+    record = _load_proposal(proposal_id, log_dir)
+    approval = _decide(record, "approved", reviewer, reason, duration)
+    typer.echo(
+        f"\nApproved by {approval.reviewer}; usable until {approval.expires_at.isoformat()} "
+        f"(approval {approval.approval_id})."
+    )
+
+
+@app.command()
+def reject(
+    proposal_id: str = typer.Argument(..., help="The proposal to reject"),
+    reviewer: str = typer.Option(..., help="Who is rejecting (recorded as given, not verified)"),
+    reason: str = typer.Option(..., help="Why, kept in the audit log"),
+    log_dir: str = _LOG_DIR_OPTION,
+) -> None:
+    """Reject a proposal. It can't be approved or executed afterwards."""
+    record = _load_proposal(proposal_id, log_dir)
+    approval = _decide(record, "rejected", reviewer, reason)
+    typer.echo(f"\nRejected by {approval.reviewer} (decision {approval.approval_id}).")
 
 
 if __name__ == "__main__":

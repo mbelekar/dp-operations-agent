@@ -4,7 +4,7 @@
 
 ## Overview & scope
 
-The agent diagnoses failures across Kafka, Flink, dbt, and data-quality layers, and proposes remediation for human approval. It does not auto-execute changes in v1.
+The agent diagnoses failures across Kafka, Flink, and dbt, and proposes remediation for human approval. It does not auto-execute changes in v1.
 
 **In scope**
 
@@ -74,14 +74,6 @@ Backpressure localization matters most here: the agent walks the operator chain 
 
 The agent distinguishes "the model's logic is wrong" from "the model is correct but its inputs are bad" by checking whether the same test passed on the previous run with no code change. If so, the fault is almost certainly upstream, and the agent routes the investigation there via lineage rather than suggesting a model edit.
 
-## Data quality diagnostic module
-
-- **Schema drift:** new, missing, retyped, or renamed columns detected by diffing schema snapshots (Kafka schema registry, warehouse `information_schema`, dbt `manifest.json`) run-over-run.
-- **Statistical anomalies:** volume, null-rate, and distribution shifts against a rolling baseline (e.g., z-score or seasonal-adjusted thresholds), sourced from existing tools like Great Expectations, Soda, or Monte Carlo where already deployed, rather than reimplementing detection.
-- **Cross-system contract violations:** a producer's schema-registry-declared contract diverges from what a consumer (Flink job or dbt source) actually expects, caught by comparing the registry schema against the consumer's declared/inferred schema.
-
-This module mostly acts as a **signal source** feeding the core loop rather than a standalone diagnostic path. A data-quality alert is almost always a symptom, and the loop's job is to trace it to a Kafka, Flink, or dbt root cause.
-
 ## Lineage integration
 
 Lineage is what turns four separate diagnostic modules into one platform-aware agent. Without it, the agent (or an engineer) only sees the symptom's location, not its cause.
@@ -132,7 +124,7 @@ flowchart TD
   Orch --> Kaf[Kafka tool<br/>Admin API, JMX]
   Orch --> Fli[Flink tool<br/>REST API]
   Orch --> Dbt[dbt tool<br/>artifacts/Cloud API]
-  Orch --> RB[Runbook KB<br/>RAG over past incidents]
+  Orch -.-> RB[Runbook KB<br/>RAG over past incidents<br/>deferred]
   Orch --> Prop[Proposal + audit log]
   Prop --> Approve{Human approval}
   Approve -- yes --> Exec[Execution tool<br/>gated, tier-aware]
@@ -140,7 +132,7 @@ flowchart TD
 
 - **Orchestrator:** a tool-calling LLM (Claude) that runs the detect → localize → diagnose → propose loop. All diagnostic tools are read-only and always available; the execution tool is separate, tier-aware, and only callable after an approval record exists.
 - **Diagnostic tools:** thin, typed clients over the Kafka Admin API, Flink REST API, dbt artifacts/Cloud API, and the lineage query API. Each returns structured evidence, not free text, so the orchestrator's reasoning stays grounded in real metrics rather than paraphrased summaries.
-- **Runbook knowledge base:** a RAG index over past incident write-ups and known remediation patterns, so recurring failure signatures get faster, more consistent proposals over time.
+- **Runbook knowledge base (deferred):** a RAG index over past incident write-ups and known remediation patterns, so recurring failure signatures get faster, more consistent proposals over time. Not scheduled; it needs a corpus of incident write-ups first.
 - **Permission boundary:** enforced outside the LLM, in the tool layer. The execution tool itself checks for a valid, unexpired approval record matching the exact proposed action before it will run anything, so a prompt-level mistake can't skip the gate.
 
 ## Evaluation
@@ -159,7 +151,7 @@ The suite is expected to grow alongside each phase: new modules (Flink, dbt) bri
 | --- | --- | --- |
 | 1. Single-system prototype | Kafka OR Flink diagnostics only, no lineage yet; proves the tool-calling loop and evidence format | Diagnose only |
 | 2. Add lineage + second system | Wire in OpenLineage/Marquez; add the second of Kafka/Flink; localization across two systems | Diagnose only |
-| 3. Full four-module coverage | Add dbt and data-quality modules; cascading-failure localization across all four | Diagnose + propose (no execution tool yet) |
+| 3. dbt coverage + proposals | Add the dbt module and Tier 0/1 remediation proposals; cascading-failure localization across Kafka, Flink, and dbt | Diagnose + propose (no execution tool yet) |
 | 4. Tiered remediation + approval UX | Build the execution tool, tiering logic, and approval workflow; start with Tier 0/1 proposals only | Diagnose + propose, human approves |
 | 5. Trust-based autonomy expansion | Once audit history shows consistent, correct Tier 1 proposals, consider auto-executing Tier 1 only, always with Tier 2 gated | Selective auto-remediation (future) |
 

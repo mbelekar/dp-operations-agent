@@ -1,7 +1,7 @@
 [project]
 name = "dp-ops-agent"
 version = "0.1.0"
-description = "Data Platform Operations Agent — diagnoses failures across Kafka, Flink, dbt, and data-quality layers"
+description = "Data Platform Operations Agent: diagnoses failures across Kafka, Flink, and dbt"
 requires-python = ">=3.11"
 dependencies = [
     "langchain>=1.4",

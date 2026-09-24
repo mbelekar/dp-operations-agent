@@ -229,7 +229,7 @@ src/dp_ops_agent/
 │   └── diagnosis_output/      # grounded diagnosis submission
 ├── evidence/schema.py         # typed domain contracts
 ├── audit/                     # append-only JSONL audit log
-└── runbook/                   # placeholder for Phase 3c RAG index
+└── runbook/                   # placeholder for a deferred runbook RAG index
 ```
 
 ## Roadmap
@@ -241,9 +241,9 @@ src/dp_ops_agent/
 | 2b | Cross-system lineage | ✅ Done |
 | 3a | dbt diagnostics and upstream root-cause tracing | ✅ Done |
 | 3b | Tier 0/1 remediation proposals, reviewed by a human | ✅ Done |
-| 3c | Data-quality module and runbook RAG | 📋 Planned |
 | 4 | Execution tools gated by independently checked human approval | 📋 Planned |
 | 5 | Evidence-based expansion of trusted autonomy | 📋 Deferred |
+| n/a | Runbook RAG over past incident write-ups | 📋 Deferred |
 
 Automatic execution remains intentionally out of scope until the system has an approval boundary and an audit history demonstrating reliable low-risk proposals.
 

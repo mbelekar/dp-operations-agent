@@ -4,7 +4,7 @@ Proposals (Phase 3b) are Tier 0/1 only: the model picks one action from the
 closed catalog below and fills its parameters; everything else about a
 proposal (tier, rollback, command preview) is derived in code, and Diagnosis
 validation checks the action against the session's evidence (ADR-0010).
-ApprovalRecord stays unused until Phase 4 (execution + approval).
+ApprovalRecord records a human's decision on a proposal (Phase 4, ADR-0011).
 """
 
 from __future__ import annotations
@@ -155,6 +155,9 @@ class ApprovalRecord(BaseModel):
     decided_at: datetime
     reasoning: str | None = None
     expires_at: datetime | None = None
+    # SHA-256 of the approved action; execution refuses an action that no
+    # longer matches it (approvals/store.py).
+    action_digest: str | None = None
 
 
 class Diagnosis(BaseModel):

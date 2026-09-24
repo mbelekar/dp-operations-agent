@@ -36,6 +36,7 @@ from dp_ops_agent.tools.flink.gateway import (
     CheckpointCounts,
     CheckpointHistoryEntry,
     CheckpointHistoryView,
+    NamedId,
     SubtaskBackpressure,
 )
 
@@ -44,6 +45,16 @@ class LiveFlinkGateway:
     def __init__(self, rest_base_url: str) -> None:
         self._base_url = rest_base_url.rstrip("/")
         self._http = httpx.Client(timeout=10.0)
+
+    def list_jobs(self) -> list[NamedId]:
+        resp = self._http.get(f"{self._base_url}/jobs/overview")
+        resp.raise_for_status()
+        return [NamedId(id=j["jid"], name=j["name"]) for j in resp.json().get("jobs", [])]
+
+    def list_vertices(self, job_id: str) -> list[NamedId]:
+        resp = self._http.get(f"{self._base_url}/jobs/{job_id}")
+        resp.raise_for_status()
+        return [NamedId(id=v["id"], name=v["name"]) for v in resp.json().get("vertices", [])]
 
     def checkpoint_history(self, job_id: str) -> CheckpointHistoryView:
         resp = self._http.get(f"{self._base_url}/jobs/{job_id}/checkpoints")

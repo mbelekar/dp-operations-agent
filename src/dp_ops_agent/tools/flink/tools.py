@@ -7,7 +7,8 @@ from langchain_core.tools import BaseTool, tool
 from dp_ops_agent.audit.models import AuditEvent
 from dp_ops_agent.audit.sink import AuditSink
 from dp_ops_agent.evidence.schema import Signal
-from dp_ops_agent.tools.flink.gateway import FlinkMetricsGateway
+from dp_ops_agent.tools.flink.gateway import FlinkMetricsGateway, NamedId
+from dp_ops_agent.tools.known_identifiers import capped, describe
 
 _SAVEPOINT_FAILURE_KEYWORDS = ("savepoint", "incompatible state", "state schema")
 
@@ -32,12 +33,50 @@ def _record_signal(
     return signal.model_dump_json()
 
 
+def _refs(items: list[NamedId]) -> list[dict[str, str]]:
+    return [i.model_dump() for i in capped(items)]
+
+
+def _describe_refs(items: list[NamedId]) -> str:
+    return describe([i.id if i.id == i.name else f"{i.id} ({i.name})" for i in items])
+
+
 def build_flink_tools(
     gateway: FlinkMetricsGateway,
     audit: AuditSink,
     session_id: str,
     collected_signals: list[Signal],
 ) -> list[BaseTool]:
+    def _no_vertex_data(job_id: str, vertex_id: str, what: str) -> dict:
+        """observed fields for an unknown result on a vertex lookup: whether
+        the vertex exists (then don't retry it) or which ones do."""
+        vertices = gateway.list_vertices(job_id)
+        if any(v.id == vertex_id for v in vertices):
+            return {
+                "no_data_reason": (
+                    f"vertex {vertex_id!r} of job {job_id!r} exists but reports no {what}; "
+                    "don't retry it"
+                ),
+                "known_vertices": _refs(vertices),
+            }
+        if vertices:
+            return {
+                "no_data_reason": (
+                    f"no vertex {vertex_id!r} in job {job_id!r}; its vertices (pass the id): "
+                    f"{_describe_refs(vertices)}"
+                ),
+                "known_vertices": _refs(vertices),
+            }
+        jobs = gateway.list_jobs()
+        return {
+            "no_data_reason": (
+                f"no vertices found for job {job_id!r}; known jobs (pass the id): "
+                f"{_describe_refs(jobs)}"
+            ),
+            "known_vertices": [],
+            "known_jobs": _refs(jobs),
+        }
+
     @tool
     async def checkpoint_failure(job_id: str) -> str:
         """Report checkpoint failure history for a Flink job. Signals growing
@@ -52,7 +91,16 @@ def build_flink_tools(
         }
         if view.counts.total == 0 and not view.history:
             severity = "unknown"
-            observed["no_data_reason"] = f"no checkpoints recorded for job {job_id!r}"
+            jobs = gateway.list_jobs()
+            observed["known_jobs"] = _refs(jobs)
+            if any(j.id == job_id for j in jobs):
+                observed["no_data_reason"] = (
+                    f"job {job_id!r} exists but has no checkpoints recorded; don't retry it"
+                )
+            else:
+                observed["no_data_reason"] = (
+                    f"no job {job_id!r}; known jobs (pass the id): {_describe_refs(jobs)}"
+                )
         else:
             severity = "critical" if critical else ("warn" if view.counts.failed >= 1 else "ok")
         signal = Signal(
@@ -83,9 +131,7 @@ def build_flink_tools(
         }
         if not view.subtasks:
             severity = "unknown"
-            observed["no_data_reason"] = (
-                f"no backpressure samples for vertex {vertex_id!r} of job {job_id!r}"
-            )
+            observed.update(_no_vertex_data(job_id, vertex_id, "backpressure samples"))
         else:
             severity = "critical" if level == "high" else ("warn" if level == "low" else "ok")
         signal = Signal(
@@ -115,9 +161,7 @@ def build_flink_tools(
         }
         if not lag_by_subtask:
             severity = "unknown"
-            observed["no_data_reason"] = (
-                f"no watermark metrics for vertex {vertex_id!r} of job {job_id!r}"
-            )
+            observed.update(_no_vertex_data(job_id, vertex_id, "watermark metrics"))
         else:
             severity = (
                 "critical" if max_lag_ms > 60_000 else ("warn" if max_lag_ms > 10_000 else "ok")
@@ -146,9 +190,7 @@ def build_flink_tools(
         observed = {"metrics": metrics}
         if disk_used_ratio is None:
             severity = "unknown"
-            observed["no_data_reason"] = (
-                f"no disk_used_ratio metric for vertex {vertex_id!r} of job {job_id!r}"
-            )
+            observed.update(_no_vertex_data(job_id, vertex_id, "disk_used_ratio metric"))
         elif disk_used_ratio > 0.9:
             severity = "critical"
         elif disk_used_ratio > 0.7:

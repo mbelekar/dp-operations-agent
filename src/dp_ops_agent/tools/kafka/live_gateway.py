@@ -66,6 +66,23 @@ class LiveKafkaGateway:
         self._metrics_cache = (now, resp.text)
         return resp.text
 
+    def list_topics(self) -> list[str]:
+        # "__"-prefixed topics are Kafka's own (__consumer_offsets, ...).
+        metadata = self._admin.list_topics(timeout=10.0)
+        return sorted(t for t in metadata.topics if not t.startswith("__"))
+
+    def list_consumer_groups(self) -> list[str]:
+        result = self._admin.list_consumer_groups(request_timeout=10.0).result(timeout=10.0)
+        return sorted(g.group_id for g in result.valid)
+
+    def list_brokers(self) -> list[int]:
+        return sorted(self._admin.list_topics(timeout=10.0).brokers)
+
+    def list_schema_subjects(self) -> list[str]:
+        resp = self._http.get(f"{self._schema_registry_url}/subjects")
+        resp.raise_for_status()
+        return sorted(resp.json())
+
     def cluster_metadata(self, topics: list[str]) -> ClusterMetadataView:
         metadata = self._admin.list_topics(timeout=10.0)
         partitions: list[PartitionMetadata] = []

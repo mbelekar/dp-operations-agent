@@ -51,7 +51,21 @@ class BackpressureView(BaseModel):
     subtasks: list[SubtaskBackpressure]
 
 
+class NamedId(BaseModel):
+    """A job or vertex as the REST API identifies it: tools take the id, the
+    name is what a human (or the model) recognizes it by. Live ids are hex."""
+
+    id: str
+    name: str
+
+
 class FlinkMetricsGateway(Protocol):
+    # Only called when a lookup found nothing, to tell the model which
+    # identifiers do exist (see ADR-0009).
+    def list_jobs(self) -> list[NamedId]: ...
+
+    def list_vertices(self, job_id: str) -> list[NamedId]: ...
+
     def checkpoint_history(self, job_id: str) -> CheckpointHistoryView: ...
 
     def backpressure(self, job_id: str, vertex_id: str) -> BackpressureView: ...

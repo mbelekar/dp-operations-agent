@@ -21,12 +21,32 @@ from dp_ops_agent.tools.flink.gateway import (
     BackpressureView,
     CheckpointCounts,
     CheckpointHistoryView,
+    NamedId,
 )
+
+_JOB_SECTIONS = (
+    "checkpoint_history",
+    "backpressure",
+    "watermark_lag",
+    "task_manager_disk_metrics",
+    "job_exceptions",
+)
+_VERTEX_SECTIONS = ("backpressure", "watermark_lag", "task_manager_disk_metrics")
 
 
 class FixtureFlinkGateway:
     def __init__(self, snapshot_path: str | Path) -> None:
         self._data: dict[str, Any] = json.loads(Path(snapshot_path).read_text())
+
+    def list_jobs(self) -> list[NamedId]:
+        job_ids = sorted({j for s in _JOB_SECTIONS for j in self._data.get(s, {})})
+        return [NamedId(id=j, name=j) for j in job_ids]
+
+    def list_vertices(self, job_id: str) -> list[NamedId]:
+        vertex_ids = sorted(
+            {v for s in _VERTEX_SECTIONS for v in self._data.get(s, {}).get(job_id, {})}
+        )
+        return [NamedId(id=v, name=v) for v in vertex_ids]
 
     def checkpoint_history(self, job_id: str) -> CheckpointHistoryView:
         raw = self._data.get("checkpoint_history", {}).get(

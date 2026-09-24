@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -125,6 +126,39 @@ async def test_no_data_for_the_identifiers_is_unknown_not_ok(tmp_path, tool, arg
 
     assert signal.severity == "unknown"
     assert signal.observed["no_data_reason"]
+    # The unknown result names what does exist, so one retry can land.
+    if "vertex_id" in args:
+        assert signal.observed["known_vertices"] == [{"id": "source", "name": "source"}]
+        assert "source" in signal.observed["no_data_reason"]
+    else:
+        assert signal.observed["known_jobs"] == [
+            {"id": "orders-processing-job", "name": "orders-processing-job"}
+        ]
+
+
+@pytest.mark.asyncio
+async def test_vertex_that_exists_without_the_metric_says_not_to_retry(tmp_path):
+    fixture = tmp_path / "no_watermark.json"
+    fixture.write_text(
+        json.dumps(
+            {"backpressure": {"job": {"source": {"status": "ok", "backpressure_level": "ok",
+                                                  "subtasks": [{"subtask": 0, "ratio": 0.0}]}}}}
+        )
+    )
+    tools = {
+        t.name: t
+        for t in build_flink_tools(
+            FixtureFlinkGateway(fixture), JsonlAuditSink(tmp_path, "s"), "s", []
+        )
+    }
+
+    signal = _signal_from_result(
+        await tools["watermark_lag"].ainvoke({"job_id": "job", "vertex_id": "source"})
+    )
+
+    assert signal.severity == "unknown"
+    assert "exists" in signal.observed["no_data_reason"]
+    assert "don't retry" in signal.observed["no_data_reason"]
 
 
 @pytest.mark.asyncio

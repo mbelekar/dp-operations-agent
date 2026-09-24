@@ -32,6 +32,16 @@ class MetricSample(BaseModel):
 
 
 class KafkaMetricsGateway(Protocol):
+    # The list_* methods are only called when a lookup found nothing, to tell
+    # the model which identifiers do exist (see ADR-0009).
+    def list_topics(self) -> list[str]: ...
+
+    def list_consumer_groups(self) -> list[str]: ...
+
+    def list_brokers(self) -> list[int]: ...
+
+    def list_schema_subjects(self) -> list[str]: ...
+
     def cluster_metadata(self, topics: list[str]) -> ClusterMetadataView: ...
 
     def broker_jmx_metrics(

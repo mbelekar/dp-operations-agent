@@ -157,6 +157,67 @@ async def test_no_data_for_the_identifiers_is_unknown(tmp_path, tool, args):
 
     assert signal.severity == "unknown"
     assert signal.observed["no_data_reason"]
+    # The unknown result names what does exist, so one retry can land.
+    if tool == "consumer_lag_trend":
+        unknown_topic = args["topic"] == "no-such-topic"
+        field, names = ("known_topics", ["orders"]) if unknown_topic else ("known_groups", ["billing-svc"])
+    else:
+        field, names = {
+            "under_replicated_partitions": ("known_topics", ["orders"]),
+            "isr_churn": ("known_brokers", [1]),
+            "rebalance_frequency": ("known_groups", ["billing-svc"]),
+            "hot_partition_skew": ("known_topics", ["orders"]),
+            "schema_registry_compat": ("known_subjects", ["orders-value"]),
+        }[tool]
+    assert signal.observed[field] == names
+    for name in names:
+        assert str(name) in signal.observed["no_data_reason"]
+
+
+def _tools_for(tmp_path, snapshot: dict):
+    fixture = tmp_path / "snapshot.json"
+    fixture.write_text(json.dumps(snapshot))
+    return {
+        t.name: t
+        for t in build_kafka_tools(
+            FixtureKafkaGateway(fixture), JsonlAuditSink(tmp_path, "s"), "s", []
+        )
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("snapshot", "tool", "args"),
+    [
+        # Live mode's permanent gap: the topic is real, per-partition
+        # throughput is never reported.
+        (
+            {"cluster_metadata": {"orders": [{"topic": "orders", "id": 0, "replicas": [1],
+                                              "isr": [1], "leader": 1}]}},
+            "hot_partition_skew",
+            {"topic": "orders", "window_minutes": 10},
+        ),
+        # Live mode's other one: the subject is real, no verdict comes back.
+        (
+            {"schema_registry_subject": {"orders-value": {}}},
+            "schema_registry_compat",
+            {"subject": "orders-value"},
+        ),
+        (
+            {"consumer_group_state_history": {"billing-svc": [{"ts": "t", "state": "Stable"}]},
+             "topic_high_watermarks": {"orders": {"0": 10}}},
+            "consumer_lag_trend",
+            {"group": "billing-svc", "topic": "orders"},
+        ),
+    ],
+    ids=["skew-real-topic", "schema-real-subject", "lag-real-group-and-topic"],
+)
+async def test_identifier_that_exists_without_data_says_not_to_retry(tmp_path, snapshot, tool, args):
+    signal = _signal_from_result(await _tools_for(tmp_path, snapshot)[tool].ainvoke(args))
+
+    assert signal.severity == "unknown"
+    assert "exists" in signal.observed["no_data_reason"]
+    assert "don't retry" in signal.observed["no_data_reason"]
 
 
 @pytest.mark.asyncio

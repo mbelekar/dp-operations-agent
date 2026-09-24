@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from langchain_core.tools import BaseTool, tool
 
@@ -8,6 +9,7 @@ from dp_ops_agent.audit.models import AuditEvent
 from dp_ops_agent.audit.sink import AuditSink
 from dp_ops_agent.evidence.schema import Signal
 from dp_ops_agent.tools.kafka.gateway import KafkaMetricsGateway
+from dp_ops_agent.tools.known_identifiers import capped, describe
 
 
 def _record_signal(
@@ -28,6 +30,17 @@ def _record_signal(
         )
     )
     return signal.model_dump_json()
+
+
+def _no_data(field: str, label: str, identifier: Any, known: list, what: str) -> dict:
+    """observed fields for an unknown result: if the identifier exists, say
+    so and not to retry it (e.g. a real topic that never reports per-partition
+    throughput); otherwise list the ones that do exist (ADR-0009)."""
+    if identifier in known:
+        reason = f"{label} {identifier!r} exists but {what}; don't retry it"
+    else:
+        reason = f"no {label} {identifier!r}; known {label}s: {describe([str(k) for k in known])}"
+    return {"no_data_reason": reason, field: capped(known)}
 
 
 def build_kafka_tools(
@@ -58,7 +71,17 @@ def build_kafka_tools(
         observed: dict = {"partitions": partitions}
         if not partitions:
             severity = "unknown"
-            observed["no_data_reason"] = f"no partition metadata for topics {topics}"
+            known_topics = gateway.list_topics()
+            missing = [t for t in topics if t not in known_topics]
+            observed.update(
+                _no_data(
+                    "known_topics",
+                    "topic",
+                    missing[0] if missing else topics[0],
+                    known_topics,
+                    "reports no partition metadata",
+                )
+            )
         else:
             severity = "critical" if critical else "ok"
         signal = Signal(
@@ -93,7 +116,15 @@ def build_kafka_tools(
         }
         if not shrinks and not expands:
             severity = "unknown"
-            observed["no_data_reason"] = f"no ISR shrink/expand metrics for broker {broker_id}"
+            observed.update(
+                _no_data(
+                    "known_brokers",
+                    "broker",
+                    broker_id,
+                    gateway.list_brokers(),
+                    "reports no ISR shrink/expand metrics",
+                )
+            )
         else:
             severity = (
                 "critical" if max_shrink_rate > 0.5 else ("warn" if max_shrink_rate > 0 else "ok")
@@ -134,11 +165,25 @@ def build_kafka_tools(
         }
         if not watermarks:
             severity = "unknown"
-            observed["no_data_reason"] = f"no partitions found for topic {topic!r}"
+            observed.update(
+                _no_data(
+                    "known_topics",
+                    "topic",
+                    topic,
+                    gateway.list_topics(),
+                    "reports no partition high watermarks",
+                )
+            )
         elif not lag_by_partition:
             severity = "unknown"
-            observed["no_data_reason"] = (
-                f"group {group!r} has no committed offsets on topic {topic!r}"
+            observed.update(
+                _no_data(
+                    "known_groups",
+                    "consumer group",
+                    group,
+                    gateway.list_consumer_groups(),
+                    f"has no committed offsets on topic {topic!r}",
+                )
             )
         else:
             severity = "critical" if max_lag > 10_000 else ("warn" if max_lag > 1_000 else "ok")
@@ -167,7 +212,15 @@ def build_kafka_tools(
         observed = {"state_history": history, "rebalance_count": rebalance_count}
         if not history:
             severity = "unknown"
-            observed["no_data_reason"] = f"no state history for consumer group {group!r}"
+            observed.update(
+                _no_data(
+                    "known_groups",
+                    "consumer group",
+                    group,
+                    gateway.list_consumer_groups(),
+                    "has no state history",
+                )
+            )
         else:
             severity = (
                 "critical" if rebalance_count > 5 else ("warn" if rebalance_count > 1 else "ok")
@@ -203,7 +256,15 @@ def build_kafka_tools(
         }
         if not throughput:
             severity = "unknown"
-            observed["no_data_reason"] = f"no per-partition throughput for topic {topic!r}"
+            observed.update(
+                _no_data(
+                    "known_topics",
+                    "topic",
+                    topic,
+                    gateway.list_topics(),
+                    "reports no per-partition throughput",
+                )
+            )
         else:
             severity = "critical" if skew_ratio > 5 else ("warn" if skew_ratio > 2 else "ok")
         signal = Signal(
@@ -232,7 +293,15 @@ def build_kafka_tools(
             # all, not a compatible one.
             severity = "unknown"
             observed["is_compatible"] = None
-            observed["no_data_reason"] = f"no compatibility result for subject {subject!r}"
+            observed.update(
+                _no_data(
+                    "known_subjects",
+                    "schema subject",
+                    subject,
+                    gateway.list_schema_subjects(),
+                    "has no compatibility verdict available",
+                )
+            )
         else:
             observed["is_compatible"] = result["is_compatible"]
             severity = "ok" if result["is_compatible"] else "critical"

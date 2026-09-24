@@ -413,6 +413,8 @@ async def test_dbt_flagship_sink_vertex_is_unknown_not_nominal(tmp_path):
     for tool in ("watermark_lag", "backpressure_ratio", "state_backend_disk_pressure"):
         result = json.loads(await tools[tool].ainvoke(sink))
         assert result["severity"] == "unknown", tool
+        # ...and points at the vertex that does exist.
+        assert result["observed"]["known_vertices"] == [{"id": "source", "name": "source"}], tool
     source_watermark = json.loads(
         await tools["watermark_lag"].ainvoke({**sink, "vertex_id": "source"})
     )

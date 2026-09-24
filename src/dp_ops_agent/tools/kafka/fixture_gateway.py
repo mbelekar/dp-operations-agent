@@ -26,6 +26,21 @@ class FixtureKafkaGateway:
     def __init__(self, snapshot_path: str | Path) -> None:
         self._data: dict[str, Any] = json.loads(Path(snapshot_path).read_text())
 
+    def _keys(self, *sections: str) -> list[str]:
+        return sorted({k for s in sections for k in self._data.get(s, {})})
+
+    def list_topics(self) -> list[str]:
+        return self._keys("cluster_metadata", "topic_high_watermarks", "partition_throughput")
+
+    def list_consumer_groups(self) -> list[str]:
+        return self._keys("consumer_group_offsets", "consumer_group_state_history")
+
+    def list_brokers(self) -> list[int]:
+        return sorted(int(b) for b in self._keys("broker_jmx_metrics"))
+
+    def list_schema_subjects(self) -> list[str]:
+        return self._keys("schema_registry_subject")
+
     def cluster_metadata(self, topics: list[str]) -> ClusterMetadataView:
         by_topic: dict[str, Any] = self._data.get("cluster_metadata", {})
         partitions: list[PartitionMetadata] = []

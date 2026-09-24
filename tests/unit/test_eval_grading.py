@@ -29,21 +29,29 @@ def _diagnosis(signal_type: str, tool: str, scope: dict, action: dict | None) ->
 
 
 _CHECKPOINT = ("checkpoint_failure", "flink.checkpoint_failure", {"job_id": "orders-processing-job"})
-_RESTART = {"action_type": "restart_flink_job_from_checkpoint", "job_id": "orders-processing-job"}
+_MODEL_ERROR = ("model_run_failure", "dbt.model_run_failure", {"model": "fct_orders"})
+_RERUN = {"action_type": "rerun_dbt_model", "model": "fct_orders"}
 _ISR = ("isr_churn", "kafka.isr_churn", {"broker_id": "1", "group": "g", "topic": "orders"})
 
 
 def test_expected_action_proposed_passes():
-    result = grade(_diagnosis(*_CHECKPOINT, _RESTART), _BY_NAME["flink_checkpoint_failure"])
+    result = grade(_diagnosis(*_MODEL_ERROR, _RERUN), _BY_NAME["dbt_transient_model_run_failure"])
 
     assert result.passed, result.reason
 
 
 def test_right_root_cause_but_no_proposal_fails_when_an_action_is_expected():
-    result = grade(_diagnosis(*_CHECKPOINT, None), _BY_NAME["flink_checkpoint_failure"])
+    result = grade(_diagnosis(*_MODEL_ERROR, None), _BY_NAME["dbt_transient_model_run_failure"])
 
     assert not result.passed
-    assert "restart_flink_job_from_checkpoint" in result.reason
+    assert "rerun_dbt_model" in result.reason
+
+
+def test_recovery_action_is_not_expected_where_it_cannot_fix_the_cause():
+    # A code regression isn't fixed by re-running the same model, and a
+    # running job with a transient checkpoint blip isn't fixed by a restart.
+    assert _BY_NAME["dbt_model_logic_regression"].expected_action_type == "none"
+    assert _BY_NAME["flink_checkpoint_failure"].expected_action_type == "none"
 
 
 def test_tier0_expected_and_no_proposal_passes():

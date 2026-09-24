@@ -2,11 +2,11 @@
 
 [![tests](https://github.com/mbelekar/dp-operations-agent/actions/workflows/tests.yml/badge.svg)](https://github.com/mbelekar/dp-operations-agent/actions/workflows/tests.yml)
 
-A data platform operations agent that investigates failures across Kafka, Flink, and dbt, then produces a diagnosis grounded in evidence collected through tools.
+A data platform operations agent that investigates failures across Kafka, Flink, and dbt, then produces a diagnosis grounded in evidence collected through tools, optionally with a remediation proposal for a human to review.
 
 It is designed to find **where an incident started**, not just where the alert appeared.
 
-> **Current scope:** diagnosis only. The agent does not propose or execute changes yet.
+> **Current scope:** diagnosis and Tier 0/1 remediation proposals. The agent never executes changes.
 
 ![Demo: dp-ops-agent diagnose against a live model](docs/diagrams/demo.gif)
 
@@ -18,7 +18,8 @@ The demo is a real `./auto/run diagnose` invocation against fixture data and a l
 - Traces downstream symptoms back to upstream causes
 - Collects operational evidence through typed diagnostic tools
 - Rejects conclusions that cite evidence the agent did not observe
-- Records signals, diagnoses, and usage in an append-only audit log
+- Proposes one reversible, narrow remediation (or none) with a code-generated command, rollback, and warnings
+- Records signals, diagnoses, proposals, and usage in an append-only audit log
 - Supports deterministic fixture-based testing and optional live infrastructure
 
 ## Why this exists
@@ -35,7 +36,7 @@ A conventional alert shows where the problem surfaced. This agent follows lineag
 
 ## Current capabilities
 
-The project is at **Phase 3a of 5**.
+The project is at **Phase 3b of 5**.
 
 | Capability | Status | Details |
 | --- | --- | --- |
@@ -44,8 +45,8 @@ The project is at **Phase 3a of 5**.
 | Cross-system lineage | ✅ Implemented | [Lineage documentation](docs/lineage.md) |
 | dbt diagnostics | ✅ Implemented | [dbt documentation](docs/dbt.md) |
 | Grounded evidence chains | ✅ Implemented | Enforced in code |
-| Append-only audit trail | ✅ Implemented | Signals, diagnoses, and usage |
-| Remediation proposals | 📋 Planned | Phase 3b |
+| Append-only audit trail | ✅ Implemented | Signals, diagnoses, proposals, and usage |
+| Remediation proposals | ✅ Implemented (Tier 0/1) | [Proposals documentation](docs/proposals.md) |
 | Human-approved execution | 📋 Planned | Phase 4 |
 
 The implemented three-hop scenario traces a dbt freshness failure through Flink to a Kafka root cause.
@@ -109,7 +110,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
   --alert-text "PagerDuty: consumer lag alert on billing-svc/orders"
 ```
 
-The command uses canned infrastructure snapshots and makes one live model call. It returns a structured JSON `Diagnosis`, including the evidence chain, and the path to the session audit log.
+The command uses canned infrastructure snapshots and makes one live model call. It returns a structured JSON `Diagnosis`, including the evidence chain and any proposal, and the path to the session audit log.
 
 All four fixture arguments are required because every diagnostic session exposes all four tool groups. Run the following for the full CLI reference:
 
@@ -137,7 +138,7 @@ Tests and evaluations answer different questions.
 ./auto/test
 ```
 
-**167/167 tests** run without Kafka, Flink, Marquez, dbt, or Anthropic.
+**196/196 tests** run without Kafka, Flink, Marquez, dbt, or Anthropic.
 
 To include the live-model test:
 
@@ -153,11 +154,11 @@ The test suite verifies code and structural correctness. It does not claim that 
 ./auto/eval
 ```
 
-The evaluation suite runs eight labeled incidents:
+The evaluation suite runs nine labeled incidents:
 
 - Four Kafka scenarios
 - One Flink scenario
-- One dbt scenario
+- Two dbt scenarios
 - One Flink-to-Kafka scenario
 - One dbt-to-Flink-to-Kafka scenario
 
@@ -239,7 +240,7 @@ src/dp_ops_agent/
 | 2a | Flink diagnostics | ✅ Done |
 | 2b | Cross-system lineage | ✅ Done |
 | 3a | dbt diagnostics and upstream root-cause tracing | ✅ Done |
-| 3b | Tiered, informational remediation proposals | 📋 Planned |
+| 3b | Tier 0/1 remediation proposals, reviewed by a human | ✅ Done |
 | 3c | Data-quality module and runbook RAG | 📋 Planned |
 | 4 | Execution tools gated by independently checked human approval | 📋 Planned |
 | 5 | Evidence-based expansion of trusted autonomy | 📋 Deferred |
@@ -252,5 +253,6 @@ Automatic execution remains intentionally out of scope until the system has an a
 - [Flink diagnostics](docs/flink.md)
 - [Cross-system lineage](docs/lineage.md)
 - [dbt diagnostics](docs/dbt.md)
+- [Remediation proposals](docs/proposals.md)
 - [Docker environment](docs/docker.md)
 - [Architecture decisions](docs/decisions/)

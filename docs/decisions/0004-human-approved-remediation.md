@@ -10,7 +10,7 @@ The agent may diagnose an incident and propose a remediation, but it must not ex
 
 The approval boundary must be enforced outside the LLM.
 
-> **Current implementation:** diagnosis only. Proposal and execution capabilities have not been built yet.
+> **Current implementation:** diagnosis plus Tier 0/1 proposals for human review ([ADR-0010](0010-proposals-model-chosen-code-checked.md)). Execution and approval records have not been built yet.
 
 ## Context
 

@@ -99,7 +99,7 @@ SCENARIOS: list[EvalScenario] = [
     ),
     EvalScenario(
         name="flink_checkpoint_failure",
-        expected_action_type="restart_flink_job_from_checkpoint",
+        expected_action_type="none",
         kafka_fixture_path=KAFKA_HEALTHY,
         flink_fixture_path=FLINK_FIXTURE_DIR / "checkpoint_failure_incident.json",
         lineage_fixture_path=LINEAGE_EMPTY,
@@ -148,8 +148,26 @@ SCENARIOS: list[EvalScenario] = [
         ),
     ),
     EvalScenario(
-        name="dbt_model_logic_regression",
+        name="dbt_transient_model_run_failure",
         expected_action_type="rerun_dbt_model",
+        kafka_fixture_path=KAFKA_HEALTHY,
+        flink_fixture_path=FLINK_HEALTHY,
+        lineage_fixture_path=LINEAGE_EMPTY,
+        dbt_fixture_path=DBT_FIXTURE_DIR / "transient_model_run_failure_incident.json",
+        alert_text="PagerDuty: dbt build failed: model fct_orders errored",
+        expected_signal_type="model_run_failure",
+        description=(
+            "The one scenario where a catalog action is the right fix: fct_orders "
+            "failed because the database aborted it to break a deadlock, but its "
+            "code is unchanged, it succeeded on the previous run, and its inputs "
+            "are healthy. A deadlock is transient and retryable, so re-running the "
+            "model is the remediation, unlike a code regression, which a re-run "
+            "would only reproduce."
+        ),
+    ),
+    EvalScenario(
+        name="dbt_model_logic_regression",
+        expected_action_type="none",
         kafka_fixture_path=KAFKA_HEALTHY,
         flink_fixture_path=FLINK_HEALTHY,
         lineage_fixture_path=LINEAGE_EMPTY,

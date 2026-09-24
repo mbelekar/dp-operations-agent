@@ -13,5 +13,6 @@ These records explain the choices that shaped the project, the alternatives cons
 | [0007](0007-root-cause-signal-id.md) | Require an explicit root-cause signal ID |
 | [0008](0008-dbt-previous-run-via-state-dir.md) | Use dbt state artifacts for previous-run comparison |
 | [0009](0009-no-data-is-unknown-not-ok.md) | Report missing data as `unknown`, not `ok` |
+| [0010](0010-proposals-model-chosen-code-checked.md) | Let the model choose proposals and code check them |
 
 The ADRs were extracted from working plans so the architectural reasoning remains visible in the repository.

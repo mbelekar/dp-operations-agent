@@ -529,3 +529,42 @@ def test_submit_diagnosis_tool_schema_has_no_dangling_refs(tmp_path):
     assert "#/$defs/" not in schema
     for action_type in ("restart_flink_job_from_checkpoint", "rerun_dbt_model", "replay_kafka_offsets"):
         assert action_type in schema
+
+
+@pytest.mark.asyncio
+async def test_transient_dbt_failure_fixture_supports_a_rerun_proposal(tmp_path):
+    """The eval scenario where a catalog action is the right fix: fct_orders
+    errored (a deadlock) with unchanged code after a previous success."""
+    tools, result_holder = _build_tools(
+        tmp_path,
+        "wiring-transient-dbt",
+        dbt_fixture=FIXTURES / "dbt" / "transient_model_run_failure_incident.json",
+    )
+
+    run = json.loads(await tools["model_run_failure"].ainvoke({"model": "fct_orders"}))
+    assert run["severity"] == "critical"
+    assert run["observed"]["model_code_changed"] is False
+    assert run["observed"]["previous_status"] == "success"
+    assert "deadlock detected" in run["observed"]["message"]
+    freshness = json.loads(await tools["freshness_check_failure"].ainvoke({"source": "raw.orders_sink"}))
+    assert freshness["severity"] == "ok"
+
+    result = await tools["submit_diagnosis"].ainvoke(
+        {
+            "root_cause_hypothesis": "a transient deadlock aborted the fct_orders build",
+            "root_cause_signal_id": run["signal_id"],
+            "confidence": "high",
+            "evidence_chain": [
+                {"step": 1, "signal_id": run["signal_id"], "interpretation": "deadlock, code unchanged"},
+                {"step": 2, "signal_id": freshness["signal_id"], "interpretation": "inputs fresh"},
+            ],
+            "proposal": {
+                "action": {"action_type": "rerun_dbt_model", "model": "fct_orders"},
+                "expected_outcome": "fct_orders builds on retry",
+            },
+        }
+    )
+
+    assert "rejected" not in result
+    assert result_holder["diagnosis"].system == "dbt"
+    assert result_holder["diagnosis"].proposal.command == "dbt run --select fct_orders"

@@ -1,10 +1,10 @@
 # dbt diagnostic module
 
-> **Status:** Implemented in Phase 3a · Diagnosis only
+> **Status:** Implemented in Phase 3a · Proposals from Phase 3b · Nothing is executed
 
 The dbt module distinguishes failures caused by model changes from failures caused by bad or missing upstream data.
 
-It uses current and previous dbt artifacts, then follows [lineage](lineage.md) when the evidence points upstream. Remediation proposals begin in Phase 3b; execution is not implemented.
+It uses current and previous dbt artifacts, then follows [lineage](lineage.md) when the evidence points upstream. A dbt root cause can carry a `rerun_dbt_model` [proposal](proposals.md) for human review; execution is not implemented.
 
 ## Core decision
 
@@ -134,6 +134,15 @@ Real dbt OpenLineage events use warehouse-connection namespaces. Mapping these i
 4. The correct root cause is the dbt `test_failure`, with `system: dbt`.
 
 The second scenario prevents the agent from learning a simplistic “always blame upstream” rule.
+
+### Transient model failure
+
+1. `fct_orders` fails because the database aborted it to break a deadlock.
+2. It succeeded on the previous run, and its code is unchanged.
+3. Its sources are fresh and upstream systems are healthy.
+4. The correct root cause is the dbt `model_run_failure`, and the correct [proposal](proposals.md) is `rerun_dbt_model`.
+
+This is the only scenario whose correct answer includes a remediation action. In the regression scenario above, re-running would only reproduce the bug, so no action is correct there.
 
 ## Example
 

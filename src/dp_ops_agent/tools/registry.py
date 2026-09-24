@@ -2,8 +2,8 @@
 
 IMPORTANT for future phases: every tool returned here is auto-executed by
 create_agent's built-in ToolNode with no gate. Every tool registered so far
-(Kafka, Flink, lineage, dbt) is a read-only diagnostic, so that's correct. When Phase 4
-adds the execution tool, it MUST be gated by an AgentMiddleware.wrap_tool_call
+(Kafka, Flink, lineage, dbt) is a read-only diagnostic, so that's correct. Execution is
+deferred (ADR-0011); if a state-changing tool is ever added, it MUST be gated by an AgentMiddleware.wrap_tool_call
 (or awrap_tool_call) hook that checks the approval store before calling
 handler(request) — short-circuiting with a denial ToolMessage instead of
 calling handler() when no valid, unexpired approval record exists. Without

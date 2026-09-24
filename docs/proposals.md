@@ -91,8 +91,22 @@ Only `rerun_dbt_model` has a live-model scenario. `restart_flink_job_from_checkp
 | CLI output | `tests/unit/test_cli_live_alert.py` | The printed proposal block |
 | Grading | `tests/unit/test_eval_grading.py` | Expected action and Tier 0 expectations |
 
+## Reviewing a proposal
+
+A reviewer records a decision on a Tier 1 proposal. Both commands print the full proposal first.
+
+```bash
+dp-ops-agent approve <proposal_id> --reviewer <name> [--expires-in 1h] [--reason "..."]
+dp-ops-agent reject <proposal_id> --reviewer <name> --reason "..."
+```
+
+The decision is appended to the session audit log as an `approval_decision` event, with a digest of the approved action and, for an approval, an expiry. A proposal can be decided once (re-approval is allowed after an approval expires). Tier 0 proposals can't be approved. `--reviewer` is recorded as given, not authenticated.
+
+Nothing executes an approved proposal: the reviewer runs the previewed command. See [ADR-0011](decisions/0011-record-approvals-defer-execution.md).
+
 ## Not built yet
 
+- Executing approved proposals (deferred, ADR-0011)
 - Tier 2 actions, which need downstream lineage and a per-sink idempotency registry
 - Volume and time-to-replay estimates
-- Approval records, an approval UI, and any execution (Phase 4)
+- An approval UI beyond the CLI

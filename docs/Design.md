@@ -152,7 +152,7 @@ The suite is expected to grow alongside each phase: new modules (Flink, dbt) bri
 | 1. Single-system prototype | Kafka OR Flink diagnostics only, no lineage yet; proves the tool-calling loop and evidence format | Diagnose only |
 | 2. Add lineage + second system | Wire in OpenLineage/Marquez; add the second of Kafka/Flink; localization across two systems | Diagnose only |
 | 3. dbt coverage + proposals | Add the dbt module and Tier 0/1 remediation proposals; cascading-failure localization across Kafka, Flink, and dbt | Diagnose + propose (no execution tool yet) |
-| 4. Tiered remediation + approval UX | Build the execution tool, tiering logic, and approval workflow; start with Tier 0/1 proposals only | Diagnose + propose, human approves |
+| 4. Approval records | Record human approve/reject decisions on Tier 0/1 proposals; executing approved proposals is deferred (ADR-0011) | Diagnose + propose, human approves and runs |
 | 5. Trust-based autonomy expansion | Once audit history shows consistent, correct Tier 1 proposals, consider auto-executing Tier 1 only, always with Tier 2 gated | Selective auto-remediation (future) |
 
 Phase 1 is the right starting point for a working prototype: pick one system (Kafka or Flink, whichever has more current incident volume) and build the orchestrator + one diagnostic tool + a proposal output, before adding lineage or the other systems.

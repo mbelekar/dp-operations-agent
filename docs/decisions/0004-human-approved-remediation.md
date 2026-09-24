@@ -10,7 +10,7 @@ The agent may diagnose an incident and propose a remediation, but it must not ex
 
 The approval boundary must be enforced outside the LLM.
 
-> **Current implementation:** diagnosis plus Tier 0/1 proposals for human review ([ADR-0010](0010-proposals-model-chosen-code-checked.md)). Execution and approval records have not been built yet.
+> **Current implementation:** diagnosis, Tier 0/1 proposals ([ADR-0010](0010-proposals-model-chosen-code-checked.md)), and recorded approve/reject decisions. Execution is deferred and humans run reviewed commands themselves ([ADR-0011](0011-record-approvals-defer-execution.md)), so the enforcement below applies to any future executor.
 
 ## Context
 

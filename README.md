@@ -47,7 +47,8 @@ The project is at **Phase 3b of 5**.
 | Grounded evidence chains | ✅ Implemented | Enforced in code |
 | Append-only audit trail | ✅ Implemented | Signals, diagnoses, proposals, and usage |
 | Remediation proposals | ✅ Implemented (Tier 0/1) | [Proposals documentation](docs/proposals.md) |
-| Human-approved execution | 📋 Planned | Phase 4 |
+| Approval records | ✅ Implemented | `approve` / `reject` a proposal; see [proposals](docs/proposals.md#reviewing-a-proposal) |
+| Execution | 📋 Deferred | Humans run the reviewed command ([ADR-0011](docs/decisions/0011-record-approvals-defer-execution.md)) |
 
 The implemented three-hop scenario traces a dbt freshness failure through Flink to a Kafka root cause.
 
@@ -138,7 +139,7 @@ Tests and evaluations answer different questions.
 ./auto/test
 ```
 
-**196/196 tests** run without Kafka, Flink, Marquez, dbt, or Anthropic.
+**215/215 tests** run without Kafka, Flink, Marquez, dbt, or Anthropic.
 
 To include the live-model test:
 
@@ -241,9 +242,10 @@ src/dp_ops_agent/
 | 2b | Cross-system lineage | ✅ Done |
 | 3a | dbt diagnostics and upstream root-cause tracing | ✅ Done |
 | 3b | Tier 0/1 remediation proposals, reviewed by a human | ✅ Done |
-| 4 | Execution tools gated by independently checked human approval | 📋 Planned |
+| 4 | Human approval records for proposals | ✅ Done |
 | 5 | Evidence-based expansion of trusted autonomy | 📋 Deferred |
 | n/a | Runbook RAG over past incident write-ups | 📋 Deferred |
+| n/a | Executing approved proposals | 📋 Deferred |
 
 Automatic execution remains intentionally out of scope until the system has an approval boundary and an audit history demonstrating reliable low-risk proposals.
 

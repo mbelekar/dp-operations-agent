@@ -1,0 +1,239 @@
+{
+  "upstream_lineage": {
+    "job:flink:orders-processing-job": {
+      "nodes": [
+        {
+          "id": "dataset:kafka:orders",
+          "type": "DATASET",
+          "in_edges": [],
+          "out_edges": [
+            {
+              "origin": "dataset:kafka:orders",
+              "destination": "job:flink:orders-processing-job"
+            }
+          ]
+        }
+      ]
+    },
+    "dataset:warehouse:raw.orders_sink": {
+      "nodes": [
+        {
+          "id": "job:flink:orders-processing-job",
+          "type": "JOB",
+          "in_edges": [
+            {
+              "origin": "dataset:kafka:orders",
+              "destination": "job:flink:orders-processing-job"
+            }
+          ],
+          "out_edges": [
+            {
+              "origin": "job:flink:orders-processing-job",
+              "destination": "dataset:warehouse:raw.orders_sink"
+            }
+          ]
+        },
+        {
+          "id": "dataset:kafka:orders",
+          "type": "DATASET",
+          "in_edges": [],
+          "out_edges": [
+            {
+              "origin": "dataset:kafka:orders",
+              "destination": "job:flink:orders-processing-job"
+            }
+          ]
+        }
+      ]
+    },
+    "job:dbt:stg_orders": {
+      "nodes": [
+        {
+          "id": "dataset:warehouse:raw.orders_sink",
+          "type": "DATASET",
+          "in_edges": [
+            {
+              "origin": "job:flink:orders-processing-job",
+              "destination": "dataset:warehouse:raw.orders_sink"
+            }
+          ],
+          "out_edges": [
+            {
+              "origin": "dataset:warehouse:raw.orders_sink",
+              "destination": "job:dbt:stg_orders"
+            }
+          ]
+        },
+        {
+          "id": "job:flink:orders-processing-job",
+          "type": "JOB",
+          "in_edges": [
+            {
+              "origin": "dataset:kafka:orders",
+              "destination": "job:flink:orders-processing-job"
+            }
+          ],
+          "out_edges": [
+            {
+              "origin": "job:flink:orders-processing-job",
+              "destination": "dataset:warehouse:raw.orders_sink"
+            }
+          ]
+        },
+        {
+          "id": "dataset:kafka:orders",
+          "type": "DATASET",
+          "in_edges": [],
+          "out_edges": [
+            {
+              "origin": "dataset:kafka:orders",
+              "destination": "job:flink:orders-processing-job"
+            }
+          ]
+        }
+      ]
+    },
+    "dataset:warehouse:analytics.stg_orders": {
+      "nodes": [
+        {
+          "id": "job:dbt:stg_orders",
+          "type": "JOB",
+          "in_edges": [
+            {
+              "origin": "dataset:warehouse:raw.orders_sink",
+              "destination": "job:dbt:stg_orders"
+            }
+          ],
+          "out_edges": [
+            {
+              "origin": "job:dbt:stg_orders",
+              "destination": "dataset:warehouse:analytics.stg_orders"
+            }
+          ]
+        },
+        {
+          "id": "dataset:warehouse:raw.orders_sink",
+          "type": "DATASET",
+          "in_edges": [
+            {
+              "origin": "job:flink:orders-processing-job",
+              "destination": "dataset:warehouse:raw.orders_sink"
+            }
+          ],
+          "out_edges": [
+            {
+              "origin": "dataset:warehouse:raw.orders_sink",
+              "destination": "job:dbt:stg_orders"
+            }
+          ]
+        },
+        {
+          "id": "job:flink:orders-processing-job",
+          "type": "JOB",
+          "in_edges": [
+            {
+              "origin": "dataset:kafka:orders",
+              "destination": "job:flink:orders-processing-job"
+            }
+          ],
+          "out_edges": [
+            {
+              "origin": "job:flink:orders-processing-job",
+              "destination": "dataset:warehouse:raw.orders_sink"
+            }
+          ]
+        },
+        {
+          "id": "dataset:kafka:orders",
+          "type": "DATASET",
+          "in_edges": [],
+          "out_edges": [
+            {
+              "origin": "dataset:kafka:orders",
+              "destination": "job:flink:orders-processing-job"
+            }
+          ]
+        }
+      ]
+    },
+    "job:dbt:fct_orders": {
+      "nodes": [
+        {
+          "id": "dataset:warehouse:analytics.stg_orders",
+          "type": "DATASET",
+          "in_edges": [
+            {
+              "origin": "job:dbt:stg_orders",
+              "destination": "dataset:warehouse:analytics.stg_orders"
+            }
+          ],
+          "out_edges": [
+            {
+              "origin": "dataset:warehouse:analytics.stg_orders",
+              "destination": "job:dbt:fct_orders"
+            }
+          ]
+        },
+        {
+          "id": "job:dbt:stg_orders",
+          "type": "JOB",
+          "in_edges": [
+            {
+              "origin": "dataset:warehouse:raw.orders_sink",
+              "destination": "job:dbt:stg_orders"
+            }
+          ],
+          "out_edges": [
+            {
+              "origin": "job:dbt:stg_orders",
+              "destination": "dataset:warehouse:analytics.stg_orders"
+            }
+          ]
+        },
+        {
+          "id": "dataset:warehouse:raw.orders_sink",
+          "type": "DATASET",
+          "in_edges": [
+            {
+              "origin": "job:flink:orders-processing-job",
+              "destination": "dataset:warehouse:raw.orders_sink"
+            }
+          ],
+          "out_edges": [
+            {
+              "origin": "dataset:warehouse:raw.orders_sink",
+              "destination": "job:dbt:stg_orders"
+            }
+          ]
+        },
+        {
+          "id": "job:flink:orders-processing-job",
+          "type": "JOB",
+          "in_edges": [
+            {
+              "origin": "dataset:kafka:orders",
+              "destination": "job:flink:orders-processing-job"
+            }
+          ],
+          "out_edges": [
+            {
+              "origin": "job:flink:orders-processing-job",
+              "destination": "dataset:warehouse:raw.orders_sink"
+            }
+          ]
+        },
+        {
+          "id": "dataset:kafka:orders",
+          "type": "DATASET",
+          "in_edges": [],
+          "out_edges": [
+            {
+              "origin": "dataset:kafka:orders",
+              "destination": "job:flink:orders-processing-job"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

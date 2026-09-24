@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 
 from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
 from dp_ops_agent.orchestrator.session import DiagnosisNotSubmittedError, run_diagnosis
+from dp_ops_agent.tools.dbt.fixture_gateway import FixtureDbtGateway
 from dp_ops_agent.tools.flink.fixture_gateway import FixtureFlinkGateway
 from dp_ops_agent.tools.kafka.fixture_gateway import FixtureKafkaGateway
 from dp_ops_agent.tools.lineage.fixture_gateway import FixtureLineageGateway
@@ -46,6 +47,7 @@ async def run_scenario(
     kafka_gateway = FixtureKafkaGateway(scenario.kafka_fixture_path)
     flink_gateway = FixtureFlinkGateway(scenario.flink_fixture_path)
     lineage_gateway = FixtureLineageGateway(scenario.lineage_fixture_path)
+    dbt_gateway = FixtureDbtGateway(scenario.dbt_fixture_path)
 
     start = time.monotonic()
     try:
@@ -55,6 +57,7 @@ async def run_scenario(
             kafka_gateway=kafka_gateway,
             flink_gateway=flink_gateway,
             lineage_gateway=lineage_gateway,
+            dbt_gateway=dbt_gateway,
             audit=audit,
             model=model,
         )

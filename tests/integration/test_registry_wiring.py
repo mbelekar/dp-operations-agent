@@ -10,6 +10,7 @@ import pytest
 
 from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
 from dp_ops_agent.evidence.schema import Diagnosis
+from dp_ops_agent.tools.dbt.fixture_gateway import FixtureDbtGateway
 from dp_ops_agent.tools.flink.fixture_gateway import FixtureFlinkGateway
 from dp_ops_agent.tools.kafka.fixture_gateway import FixtureKafkaGateway
 from dp_ops_agent.tools.lineage.fixture_gateway import FixtureLineageGateway
@@ -24,6 +25,9 @@ FLINK_FIXTURE = (
 LINEAGE_FIXTURE = (
     Path(__file__).resolve().parents[1] / "fixtures" / "lineage" / "empty.json"
 )
+DBT_FIXTURE = (
+    Path(__file__).resolve().parents[1] / "fixtures" / "dbt" / "healthy_baseline.json"
+)
 
 FLAGSHIP_KAFKA_FIXTURE = (
     Path(__file__).resolve().parents[1]
@@ -37,6 +41,8 @@ FLAGSHIP_FLINK_FIXTURE = (
     / "flink"
     / "watermark_lag_cross_system_incident.json"
 )
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+
 FLAGSHIP_LINEAGE_FIXTURE = (
     Path(__file__).resolve().parents[1]
     / "fixtures"
@@ -51,10 +57,12 @@ def _build_tools(
     kafka_fixture: Path = KAFKA_FIXTURE,
     flink_fixture: Path = FLINK_FIXTURE,
     lineage_fixture: Path = LINEAGE_FIXTURE,
+    dbt_fixture: Path = DBT_FIXTURE,
 ):
     kafka_gateway = FixtureKafkaGateway(kafka_fixture)
     flink_gateway = FixtureFlinkGateway(flink_fixture)
     lineage_gateway = FixtureLineageGateway(lineage_fixture)
+    dbt_gateway = FixtureDbtGateway(dbt_fixture)
     audit = JsonlAuditSink(tmp_path, session_id)
     result_holder: dict[str, Diagnosis] = {}
     tools = {
@@ -63,6 +71,7 @@ def _build_tools(
             kafka_gateway,
             flink_gateway,
             lineage_gateway,
+            dbt_gateway,
             audit,
             session_id,
             "claude-sonnet-5",
@@ -75,6 +84,30 @@ def _build_tools(
 def test_build_tools_registers_every_tool(tmp_path):
     tools, _ = _build_tools(tmp_path, "wiring-test")
     assert set(tools.keys()) == set(TOOL_NAMES)
+    # A name collision between modules would silently drop a tool from the dict.
+    assert len(tools) == len(TOOL_NAMES) == 18
+
+
+@pytest.mark.asyncio
+async def test_signal_from_dbt_tool_is_citable_in_submit_diagnosis(tmp_path):
+    tools, result_holder = _build_tools(tmp_path, "wiring-test-dbt")
+
+    tf_result = await tools["test_failure"].ainvoke({"model": "stg_orders"})
+    signal_id = json.loads(tf_result)["signal_id"]
+
+    submit_result = await tools["submit_diagnosis"].ainvoke(
+        {
+            "root_cause_hypothesis": "stg_orders tests are passing",
+            "root_cause_signal_id": signal_id,
+            "confidence": "high",
+            "evidence_chain": [
+                {"step": 1, "signal_id": signal_id, "interpretation": "all tests pass"}
+            ],
+        }
+    )
+
+    assert "rejected" not in submit_result
+    assert result_holder["diagnosis"].system == "dbt"
 
 
 @pytest.mark.asyncio
@@ -252,3 +285,109 @@ async def test_submit_diagnosis_rejects_root_cause_signal_id_not_cited(tmp_path)
 
     assert "rejected" in submit_result
     assert "diagnosis" not in result_holder
+
+
+@pytest.mark.asyncio
+async def test_dbt_flagship_fixture_traces_three_hops_to_kafka(tmp_path):
+    """Design.md's cascading example: a dbt source freshness failure whose
+    tests passed last run on unchanged code, traced via lineage from the
+    warehouse table through the Flink job to the Kafka topic, where
+    isr_churn is the root cause."""
+    tools, result_holder = _build_tools(
+        tmp_path,
+        "wiring-dbt-flagship",
+        kafka_fixture=FLAGSHIP_KAFKA_FIXTURE,
+        flink_fixture=FLAGSHIP_FLINK_FIXTURE,
+        lineage_fixture=FIXTURES / "lineage" / "warehouse_table_to_kafka_topic.json",
+        dbt_fixture=FIXTURES / "dbt" / "freshness_failure_upstream_incident.json",
+    )
+
+    freshness = json.loads(
+        await tools["freshness_check_failure"].ainvoke({"source": "raw.orders_sink"})
+    )
+    assert freshness["severity"] == "critical"
+    assert freshness["scope"]["lineage_node_id"] == "dataset:warehouse:raw.orders_sink"
+
+    tests = json.loads(await tools["test_failure"].ainvoke({"model": "stg_orders"}))
+    assert tests["severity"] == "critical"
+    assert tests["observed"]["model_code_changed"] is False
+    assert tests["observed"]["all_failing_previously_passed"] is True
+
+    drift = json.loads(await tools["incremental_model_drift"].ainvoke({"model": "fct_orders"}))
+    assert drift["severity"] == "critical"
+
+    lineage = json.loads(
+        await tools["walk_lineage_upstream"].ainvoke(
+            {"node_id": freshness["scope"]["lineage_node_id"]}
+        )
+    )
+    assert [n["id"] for n in lineage["observed"]["upstream_nodes"]] == [
+        "job:flink:orders-processing-job",
+        "dataset:kafka:orders",
+    ]
+
+    watermark = json.loads(
+        await tools["watermark_lag"].ainvoke({"job_id": "orders-processing-job", "vertex_id": "source"})
+    )
+    assert watermark["severity"] == "critical"
+    isr = json.loads(await tools["isr_churn"].ainvoke({"broker_id": 1, "window_minutes": 10}))
+    assert isr["severity"] == "critical"
+
+    chain = [freshness, tests, lineage, watermark, isr]
+    submit_result = await tools["submit_diagnosis"].ainvoke(
+        {
+            "root_cause_hypothesis": (
+                "Broker 1 ISR churn stalls the Flink job's Kafka source, so its sink stops "
+                "landing raw.orders_sink and dbt's freshness and recency checks fail"
+            ),
+            "root_cause_signal_id": isr["signal_id"],
+            "confidence": "high",
+            "evidence_chain": [
+                {"step": i, "signal_id": s["signal_id"], "interpretation": s["tool"]}
+                for i, s in enumerate(chain, start=1)
+            ],
+        }
+    )
+
+    assert "rejected" not in submit_result
+    assert result_holder["diagnosis"].system == "kafka"
+
+
+@pytest.mark.asyncio
+async def test_dbt_model_logic_regression_fixture_roots_in_dbt(tmp_path):
+    """The counter-case: the failing test's model changed since the previous
+    run and nothing upstream is unhealthy, so the root cause is dbt's own."""
+    tools, result_holder = _build_tools(
+        tmp_path,
+        "wiring-dbt-regression",
+        dbt_fixture=FIXTURES / "dbt" / "model_logic_regression_incident.json",
+    )
+
+    tests = json.loads(await tools["test_failure"].ainvoke({"model": "fct_orders"}))
+    assert tests["severity"] == "critical"
+    assert tests["observed"]["model_code_changed"] is True
+    assert tests["observed"]["failing_tests"][0]["previously_passed"] is True
+
+    freshness = json.loads(
+        await tools["freshness_check_failure"].ainvoke({"source": "raw.orders_sink"})
+    )
+    assert freshness["severity"] == "ok"
+    lineage = json.loads(
+        await tools["walk_lineage_upstream"].ainvoke({"node_id": tests["scope"]["lineage_node_id"]})
+    )
+    assert lineage["observed"]["upstream_nodes"] == []
+
+    submit_result = await tools["submit_diagnosis"].ainvoke(
+        {
+            "root_cause_hypothesis": "fct_orders' SQL change nulls out amount",
+            "root_cause_signal_id": tests["signal_id"],
+            "confidence": "high",
+            "evidence_chain": [
+                {"step": 1, "signal_id": tests["signal_id"], "interpretation": "test fails after code change"},
+                {"step": 2, "signal_id": freshness["signal_id"], "interpretation": "source is fresh"},
+            ],
+        }
+    )
+
+    assert "rejected" not in submit_result
+    assert result_holder["diagnosis"].system == "dbt"

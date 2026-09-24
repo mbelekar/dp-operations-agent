@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 
 from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
 from dp_ops_agent.orchestrator.session import DiagnosisNotSubmittedError, run_diagnosis
+from dp_ops_agent.tools.dbt.fixture_gateway import FixtureDbtGateway
+from dp_ops_agent.tools.dbt.live_gateway import LiveDbtGateway
 from dp_ops_agent.tools.flink.fixture_gateway import FixtureFlinkGateway
 from dp_ops_agent.tools.flink.live_gateway import LiveFlinkGateway
 from dp_ops_agent.tools.kafka.fixture_gateway import FixtureKafkaGateway
@@ -74,6 +76,9 @@ def diagnose(
     lineage_fixture: Path | None = typer.Option(
         None, help="Path to a lineage fixture snapshot JSON file"
     ),
+    dbt_fixture: Path | None = typer.Option(
+        None, help="Path to a dbt fixture snapshot JSON file"
+    ),
     live: bool = typer.Option(
         False,
         "--live",
@@ -108,6 +113,14 @@ def diagnose(
         os.environ.get("MARQUEZ_URL", "http://localhost:5000"),
         help="Live mode only: Marquez base URL",
     ),
+    dbt_target_dir: Path = typer.Option(
+        Path(os.environ.get("DBT_TARGET_DIR", "target")),
+        help="Live mode only: dbt target/ directory with the latest run's artifacts",
+    ),
+    dbt_state_dir: Path | None = typer.Option(
+        os.environ.get("DBT_STATE_DIR"),
+        help="Live mode only: directory with the previous run's dbt artifacts (dbt --state)",
+    ),
     kafka_topics: str | None = typer.Option(
         None, help="Live mode only: comma-separated topics relevant to this incident"
     ),
@@ -124,8 +137,8 @@ def diagnose(
         None, help="Live mode only: Flink vertex_id relevant to this incident"
     ),
 ) -> None:
-    """Run a Kafka + Flink + lineage diagnosis, against fixtures by default
-    or live infra with --live."""
+    """Run a Kafka + Flink + lineage + dbt diagnosis, against fixtures by
+    default or live infra with --live."""
     session_id = str(uuid4())
     audit = JsonlAuditSink(log_dir, session_id)
 
@@ -137,6 +150,7 @@ def diagnose(
         )
         flink_gateway = LiveFlinkGateway(flink_rest_url)
         lineage_gateway = LiveLineageGateway(marquez_url)
+        dbt_gateway = LiveDbtGateway(dbt_target_dir, dbt_state_dir)
         alert_text = _augment_alert_text(
             alert_text,
             kafka_topics,
@@ -146,16 +160,22 @@ def diagnose(
             flink_job_name,
         )
     else:
-        if fixture is None or flink_fixture is None or lineage_fixture is None:
+        if (
+            fixture is None
+            or flink_fixture is None
+            or lineage_fixture is None
+            or dbt_fixture is None
+        ):
             typer.echo(
-                "--fixture, --flink-fixture, and --lineage-fixture are required "
-                "unless --live is set",
+                "--fixture, --flink-fixture, --lineage-fixture, and --dbt-fixture "
+                "are required unless --live is set",
                 err=True,
             )
             raise typer.Exit(code=1)
         kafka_gateway = FixtureKafkaGateway(fixture)
         flink_gateway = FixtureFlinkGateway(flink_fixture)
         lineage_gateway = FixtureLineageGateway(lineage_fixture)
+        dbt_gateway = FixtureDbtGateway(dbt_fixture)
 
     try:
         result = asyncio.run(
@@ -165,6 +185,7 @@ def diagnose(
                 kafka_gateway=kafka_gateway,
                 flink_gateway=flink_gateway,
                 lineage_gateway=lineage_gateway,
+                dbt_gateway=dbt_gateway,
                 audit=audit,
                 model=model,
             )

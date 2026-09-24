@@ -15,6 +15,7 @@ from dp_ops_agent.orchestrator.tool_errors import (
     build_tool_error_middleware,
     build_tool_retry_middleware,
 )
+from dp_ops_agent.tools.dbt.gateway import DbtArtifactsGateway
 from dp_ops_agent.tools.flink.gateway import FlinkMetricsGateway
 from dp_ops_agent.tools.kafka.gateway import KafkaMetricsGateway
 from dp_ops_agent.tools.lineage.gateway import LineageQueryGateway
@@ -38,6 +39,7 @@ async def run_diagnosis(
     kafka_gateway: KafkaMetricsGateway,
     flink_gateway: FlinkMetricsGateway,
     lineage_gateway: LineageQueryGateway,
+    dbt_gateway: DbtArtifactsGateway,
     audit: AuditSink,
     model: str,
 ) -> DiagnosisRunResult:
@@ -56,7 +58,14 @@ async def run_diagnosis(
 
     result_holder: dict[str, Diagnosis] = {}
     tools = build_tools(
-        kafka_gateway, flink_gateway, lineage_gateway, audit, session_id, model, result_holder
+        kafka_gateway,
+        flink_gateway,
+        lineage_gateway,
+        dbt_gateway,
+        audit,
+        session_id,
+        model,
+        result_holder,
     )
 
     agent = create_agent(
@@ -81,7 +90,7 @@ async def run_diagnosis(
                 # log entries. Tracing itself is opt-in via the LANGSMITH_*
                 # env vars (see .env.example) and a no-op otherwise.
                 "run_name": f"diagnose-{session_id}",
-                "tags": ["phase-3", "kafka", "flink", "lineage"],
+                "tags": ["phase-3", "kafka", "flink", "lineage", "dbt"],
                 "metadata": {"session_id": session_id, "model": model},
             },
         )

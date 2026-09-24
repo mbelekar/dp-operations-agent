@@ -8,7 +8,10 @@ Node ID convention: Marquez doesn't dictate one, so this project picks a
 single consistent scheme and every gateway implementation and fixture must
 use it, so a node_id computed from an alert (e.g. a topic or job name)
 round-trips correctly into a lineage query. A Kafka topic is
-"dataset:kafka:{topic}", a Flink job is "job:flink:{job_name}".
+"dataset:kafka:{topic}", a Flink job is "job:flink:{job_name}", a dbt model
+is "job:dbt:{model_name}", and a warehouse table (a dbt source, or a model's
+output) is "dataset:warehouse:{schema}.{table}". The dbt tools compute these
+ids themselves and hand them to the model in each signal's scope.
 """
 
 from __future__ import annotations

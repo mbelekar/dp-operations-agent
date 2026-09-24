@@ -1,4 +1,8 @@
-from dp_ops_agent.cli import _augment_alert_text
+from pathlib import Path
+
+from typer.testing import CliRunner
+
+from dp_ops_agent.cli import _augment_alert_text, app
 
 
 def test_job_name_listed_as_known_identifier():
@@ -31,3 +35,21 @@ def test_output_unchanged_without_job_name():
 
 def test_no_identifiers_returns_alert_unchanged():
     assert _augment_alert_text("alert", None, None, None, None, None) == "alert"
+
+
+def test_fixture_mode_requires_a_dbt_fixture(tmp_path):
+    fixtures = Path(__file__).resolve().parents[1] / "fixtures"
+    result = CliRunner().invoke(
+        app,
+        [
+            "diagnose",
+            "--fixture", str(fixtures / "kafka" / "healthy_baseline.json"),
+            "--flink-fixture", str(fixtures / "flink" / "healthy_baseline.json"),
+            "--lineage-fixture", str(fixtures / "lineage" / "empty.json"),
+            "--alert-text", "alert",
+            "--log-dir", str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "--dbt-fixture" in result.output

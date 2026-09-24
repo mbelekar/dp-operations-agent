@@ -17,6 +17,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
 from dp_ops_agent.orchestrator import session
 from dp_ops_agent.orchestrator.session import run_diagnosis
+from dp_ops_agent.tools.dbt.fixture_gateway import FixtureDbtGateway
 from dp_ops_agent.tools.flink.fixture_gateway import FixtureFlinkGateway
 from dp_ops_agent.tools.kafka.fixture_gateway import FixtureKafkaGateway
 from dp_ops_agent.tools.lineage.fixture_gateway import FixtureLineageGateway
@@ -90,6 +91,7 @@ async def _run(tmp_path, monkeypatch, exc: Exception):
         kafka_gateway=_FailingKafkaGateway(FIXTURES / "kafka" / "urp_lag_spike_incident.json", exc),
         flink_gateway=FixtureFlinkGateway(FIXTURES / "flink" / "healthy_baseline.json"),
         lineage_gateway=FixtureLineageGateway(FIXTURES / "lineage" / "empty.json"),
+        dbt_gateway=FixtureDbtGateway(FIXTURES / "dbt" / "healthy_baseline.json"),
         audit=audit,
         model="scripted",
     )

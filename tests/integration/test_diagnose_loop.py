@@ -13,6 +13,7 @@ import pytest
 
 from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
 from dp_ops_agent.orchestrator.session import run_diagnosis
+from dp_ops_agent.tools.dbt.fixture_gateway import FixtureDbtGateway
 from dp_ops_agent.tools.flink.fixture_gateway import FixtureFlinkGateway
 from dp_ops_agent.tools.kafka.fixture_gateway import FixtureKafkaGateway
 from dp_ops_agent.tools.lineage.fixture_gateway import FixtureLineageGateway
@@ -20,6 +21,7 @@ from dp_ops_agent.tools.lineage.fixture_gateway import FixtureLineageGateway
 KAFKA_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "kafka" / "urp_lag_spike_incident.json"
 FLINK_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "flink" / "healthy_baseline.json"
 LINEAGE_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "lineage" / "empty.json"
+DBT_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "dbt" / "healthy_baseline.json"
 
 pytestmark = [
     pytest.mark.llm,
@@ -34,6 +36,7 @@ async def test_diagnose_loop_produces_grounded_diagnosis(tmp_path):
     kafka_gateway = FixtureKafkaGateway(KAFKA_FIXTURE)
     flink_gateway = FixtureFlinkGateway(FLINK_FIXTURE)
     lineage_gateway = FixtureLineageGateway(LINEAGE_FIXTURE)
+    dbt_gateway = FixtureDbtGateway(DBT_FIXTURE)
     session_id = "llm-full-loop-test"
     audit = JsonlAuditSink(tmp_path, session_id)
 
@@ -43,6 +46,7 @@ async def test_diagnose_loop_produces_grounded_diagnosis(tmp_path):
         kafka_gateway=kafka_gateway,
         flink_gateway=flink_gateway,
         lineage_gateway=lineage_gateway,
+        dbt_gateway=dbt_gateway,
         audit=audit,
         model=os.environ.get("CLAUDE_MODEL", "claude-sonnet-5"),
     )

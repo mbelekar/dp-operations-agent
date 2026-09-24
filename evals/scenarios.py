@@ -2,10 +2,10 @@
 correct diagnosis should cite. Reuses the fixtures already built for the
 unit test suites rather than authoring new incident data.
 
-Every scenario needs a Kafka, a Flink, and a lineage fixture, since all
-three tool sets are always available in a session (see the gateway-wiring
-decisions in docs/decisions/) — a single-system incident still runs with a
-healthy Flink fixture and an empty lineage graph so the model has to notice
+Every scenario needs a Kafka, a Flink, a lineage, and a dbt fixture, since
+all four tool sets are always available in a session (see the gateway-wiring
+decisions in docs/decisions/) — a single-system incident still runs with
+healthy fixtures for the other systems and an empty lineage graph so the model has to notice
 there's nothing else worth investigating, not because those tools don't
 exist.
 """
@@ -21,10 +21,12 @@ FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
 KAFKA_FIXTURE_DIR = FIXTURE_ROOT / "kafka"
 FLINK_FIXTURE_DIR = FIXTURE_ROOT / "flink"
 LINEAGE_FIXTURE_DIR = FIXTURE_ROOT / "lineage"
+DBT_FIXTURE_DIR = FIXTURE_ROOT / "dbt"
 
 KAFKA_HEALTHY = KAFKA_FIXTURE_DIR / "healthy_baseline.json"
 FLINK_HEALTHY = FLINK_FIXTURE_DIR / "healthy_baseline.json"
 LINEAGE_EMPTY = LINEAGE_FIXTURE_DIR / "empty.json"
+DBT_HEALTHY = DBT_FIXTURE_DIR / "healthy_baseline.json"
 
 
 @dataclass(frozen=True)
@@ -36,6 +38,7 @@ class EvalScenario:
     alert_text: str
     expected_signal_type: SignalType
     description: str
+    dbt_fixture_path: Path = DBT_HEALTHY
 
 
 SCENARIOS: list[EvalScenario] = [

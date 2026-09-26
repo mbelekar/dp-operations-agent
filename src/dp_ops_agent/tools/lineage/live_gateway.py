@@ -46,10 +46,13 @@ def _is_unknown_node(resp: httpx.Response) -> bool:
 class LiveLineageGateway:
     def __init__(self, marquez_base_url: str) -> None:
         self._base_url = marquez_base_url.rstrip("/")
-        self._http = httpx.Client(timeout=10.0)
+        self._http = httpx.AsyncClient(timeout=10.0)
 
-    def upstream_lineage(self, node_id: str, depth: int = 5) -> LineageGraphView:
-        resp = self._http.get(
+    async def aclose(self) -> None:
+        await self._http.aclose()
+
+    async def upstream_lineage(self, node_id: str, depth: int = 5) -> LineageGraphView:
+        resp = await self._http.get(
             f"{self._base_url}/api/v1/lineage", params={"nodeId": node_id, "depth": depth}
         )
         if _is_unknown_node(resp):

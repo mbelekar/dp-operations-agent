@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+from collections.abc import Coroutine
+from contextlib import AsyncExitStack
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
 import typer
@@ -14,7 +16,11 @@ from dotenv import load_dotenv
 from dp_ops_agent.approvals.store import ProposalRecord, find_proposal, record_decision
 from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
 from dp_ops_agent.evidence.schema import Proposal
-from dp_ops_agent.orchestrator.session import DiagnosisNotSubmittedError, run_diagnosis
+from dp_ops_agent.orchestrator.session import (
+    DiagnosisNotSubmittedError,
+    DiagnosisRunResult,
+    run_diagnosis,
+)
 from dp_ops_agent.tools.dbt.fixture_gateway import FixtureDbtGateway
 from dp_ops_agent.tools.dbt.gateway import DbtArtifactsGateway
 from dp_ops_agent.tools.dbt.live_gateway import LiveDbtGateway
@@ -25,7 +31,6 @@ from dp_ops_agent.tools.kafka.fixture_gateway import FixtureKafkaGateway
 from dp_ops_agent.tools.kafka.gateway import KafkaMetricsGateway
 from dp_ops_agent.tools.kafka.live_gateway import LiveKafkaGateway
 from dp_ops_agent.tools.lineage.fixture_gateway import FixtureLineageGateway
-from dp_ops_agent.tools.lineage.gateway import LineageQueryGateway
 from dp_ops_agent.tools.lineage.live_gateway import LiveLineageGateway
 
 load_dotenv()
@@ -149,22 +154,27 @@ def diagnose(
     session_id = str(uuid4())
     audit = JsonlAuditSink(log_dir, session_id)
 
+    run: Coroutine[Any, Any, DiagnosisRunResult]
     if live:
-        kafka_gateway: KafkaMetricsGateway = LiveKafkaGateway(
-            bootstrap_servers=kafka_bootstrap_servers,
-            jmx_exporter_base_url=kafka_jmx_url,
+        run = _run_live(
+            session_id=session_id,
+            alert_text=_augment_alert_text(
+                alert_text,
+                kafka_topics,
+                consumer_group,
+                flink_job_id,
+                flink_vertex_id,
+                flink_job_name,
+            ),
+            audit=audit,
+            model=model,
+            kafka_bootstrap_servers=kafka_bootstrap_servers,
+            kafka_jmx_url=kafka_jmx_url,
             schema_registry_url=schema_registry_url,
-        )
-        flink_gateway: FlinkMetricsGateway = LiveFlinkGateway(flink_rest_url)
-        lineage_gateway: LineageQueryGateway = LiveLineageGateway(marquez_url)
-        dbt_gateway: DbtArtifactsGateway = LiveDbtGateway(dbt_target_dir, dbt_state_dir)
-        alert_text = _augment_alert_text(
-            alert_text,
-            kafka_topics,
-            consumer_group,
-            flink_job_id,
-            flink_vertex_id,
-            flink_job_name,
+            flink_rest_url=flink_rest_url,
+            marquez_url=marquez_url,
+            dbt_target_dir=dbt_target_dir,
+            dbt_state_dir=dbt_state_dir,
         )
     else:
         if (
@@ -179,24 +189,19 @@ def diagnose(
                 err=True,
             )
             raise typer.Exit(code=1)
-        kafka_gateway = FixtureKafkaGateway(fixture)
-        flink_gateway = FixtureFlinkGateway(flink_fixture)
-        lineage_gateway = FixtureLineageGateway(lineage_fixture)
-        dbt_gateway = FixtureDbtGateway(dbt_fixture)
+        run = run_diagnosis(
+            session_id=session_id,
+            alert_text=alert_text,
+            kafka_gateway=FixtureKafkaGateway(fixture),
+            flink_gateway=FixtureFlinkGateway(flink_fixture),
+            lineage_gateway=FixtureLineageGateway(lineage_fixture),
+            dbt_gateway=FixtureDbtGateway(dbt_fixture),
+            audit=audit,
+            model=model,
+        )
 
     try:
-        result = asyncio.run(
-            run_diagnosis(
-                session_id=session_id,
-                alert_text=alert_text,
-                kafka_gateway=kafka_gateway,
-                flink_gateway=flink_gateway,
-                lineage_gateway=lineage_gateway,
-                dbt_gateway=dbt_gateway,
-                audit=audit,
-                model=model,
-            )
-        )
+        result = asyncio.run(run)
     except DiagnosisNotSubmittedError as exc:
         typer.echo(f"FAILED: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -208,6 +213,45 @@ def diagnose(
         typer.echo(f"  {entry.step}. [{entry.signal_id}] {entry.interpretation}")
     _echo_proposal(diagnosis.proposal)
     typer.echo(f"\nAudit log: {result.audit_log_path}")
+
+
+async def _run_live(
+    *,
+    session_id: str,
+    alert_text: str,
+    audit: JsonlAuditSink,
+    model: str,
+    kafka_bootstrap_servers: str,
+    kafka_jmx_url: str,
+    schema_registry_url: str,
+    flink_rest_url: str,
+    marquez_url: str,
+    dbt_target_dir: Path,
+    dbt_state_dir: Path | None,
+) -> DiagnosisRunResult:
+    """Builds the live gateways inside the running event loop and closes
+    their HTTP clients when the diagnosis ends, however it ends: an
+    httpx.AsyncClient must be closed in the loop that used it."""
+    async with AsyncExitStack() as stack:
+        kafka_gateway: KafkaMetricsGateway = LiveKafkaGateway(
+            bootstrap_servers=kafka_bootstrap_servers,
+            jmx_exporter_base_url=kafka_jmx_url,
+            schema_registry_url=schema_registry_url,
+        )
+        flink_gateway: FlinkMetricsGateway = LiveFlinkGateway(flink_rest_url)
+        lineage = LiveLineageGateway(marquez_url)
+        stack.push_async_callback(lineage.aclose)
+        dbt_gateway: DbtArtifactsGateway = LiveDbtGateway(dbt_target_dir, dbt_state_dir)
+        return await run_diagnosis(
+            session_id=session_id,
+            alert_text=alert_text,
+            kafka_gateway=kafka_gateway,
+            flink_gateway=flink_gateway,
+            lineage_gateway=lineage,
+            dbt_gateway=dbt_gateway,
+            audit=audit,
+            model=model,
+        )
 
 
 def _echo_proposal(proposal: Proposal | None) -> None:

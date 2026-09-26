@@ -54,7 +54,7 @@ def build_lineage_tools(
         be where the root cause actually lives, then investigate whatever
         upstream system this returns using that system's own tools."""
         now = datetime.now(UTC)
-        view = gateway.upstream_lineage(node_id)
+        view = await gateway.upstream_lineage(node_id)
         observed = LineageUpstreamObserved(
             upstream_nodes=[UpstreamNode(id=n.id, type=n.type) for n in view.nodes]
         )

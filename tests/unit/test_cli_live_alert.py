@@ -1,6 +1,7 @@
 from datetime import UTC
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from dp_ops_agent.cli import _augment_alert_text, app
@@ -151,3 +152,57 @@ def test_diagnose_says_when_no_action_is_proposed(tmp_path, monkeypatch):
 
     assert result.exit_code == 0, result.output
     assert "Proposal: none (Tier 0, root cause identified, no action proposed)" in result.output
+
+
+def _live_args(tmp_path):
+    return ["diagnose", "--live", "--alert-text", "alert", "--log-dir", str(tmp_path)]
+
+
+def _spy_on_lineage_close(monkeypatch) -> list[bool]:
+    """Records, for each LiveLineageGateway the CLI builds, whether its HTTP
+    client was closed once the diagnosis finished."""
+    from dp_ops_agent import cli
+    from dp_ops_agent.tools.lineage.live_gateway import LiveLineageGateway
+
+    built: list[LiveLineageGateway] = []
+
+    class _Recording(LiveLineageGateway):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            built.append(self)
+
+    monkeypatch.setattr(cli, "LiveLineageGateway", _Recording)
+    # No broker in unit tests: don't let librdkafka start connecting.
+    monkeypatch.setattr(cli, "LiveKafkaGateway", lambda **kwargs: object())
+    return built
+
+
+def test_live_diagnosis_closes_the_gateways_http_clients(tmp_path, monkeypatch):
+    _stub_run(monkeypatch, None)
+    built = _spy_on_lineage_close(monkeypatch)
+
+    result = CliRunner().invoke(app, _live_args(tmp_path))
+
+    assert result.exit_code == 0, result.output
+    [gateway] = built
+    assert gateway._http.is_closed
+
+
+@pytest.mark.parametrize("error", ["not_submitted", "unexpected"])
+def test_live_diagnosis_closes_the_http_clients_when_it_fails(tmp_path, monkeypatch, error):
+    from dp_ops_agent import cli
+    from dp_ops_agent.orchestrator.session import DiagnosisNotSubmittedError
+
+    async def failing_run_diagnosis(**kwargs):
+        if error == "not_submitted":
+            raise DiagnosisNotSubmittedError("no submit_diagnosis call")
+        raise RuntimeError("bug")
+
+    monkeypatch.setattr(cli, "run_diagnosis", failing_run_diagnosis)
+    built = _spy_on_lineage_close(monkeypatch)
+
+    result = CliRunner().invoke(app, _live_args(tmp_path))
+
+    assert result.exit_code != 0
+    [gateway] = built
+    assert gateway._http.is_closed

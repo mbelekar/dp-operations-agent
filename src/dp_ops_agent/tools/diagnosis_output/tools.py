@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from langchain_core.tools import BaseTool, tool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from dp_ops_agent.audit.models import AuditEvent
 from dp_ops_agent.audit.sink import AuditSink
@@ -141,9 +141,10 @@ def build_diagnosis_output_tools(
                 created_at=datetime.now(timezone.utc),
                 model=model_name,
             )
-        except Exception as exc:
+        except ValidationError as exc:
             # Validation failure (e.g. an ungrounded signal_id) surfaces as a
-            # tool error so the model must retry with real evidence.
+            # tool error so the model must retry with real evidence. Anything
+            # else is a bug in our code and propagates (see tool_errors.py).
             return f"submit_diagnosis rejected: {exc}"
 
         result_holder["diagnosis"] = diagnosis

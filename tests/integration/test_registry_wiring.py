@@ -568,3 +568,36 @@ async def test_transient_dbt_failure_fixture_supports_a_rerun_proposal(tmp_path)
     assert "rejected" not in result
     assert result_holder["diagnosis"].system == "dbt"
     assert result_holder["diagnosis"].proposal.command == "dbt run --select fct_orders"
+
+
+@pytest.mark.asyncio
+async def test_submit_diagnosis_propagates_a_bug_instead_of_rejecting(tmp_path, monkeypatch):
+    """Only validation failures are the model's to fix. A defect in our own
+    code (here, a crash in the proposal renderer) must surface, not come back
+    to the model as a rejection it would retry against."""
+    from dp_ops_agent.tools.diagnosis_output import tools as diagnosis_tools
+
+    def broken_render(action):
+        raise RuntimeError("renderer bug")
+
+    monkeypatch.setattr(diagnosis_tools, "render", broken_render)
+    tools, result_holder = _build_tools(tmp_path, "wiring-test-bug")
+    tf_result = await tools["test_failure"].ainvoke({"model": "stg_orders"})
+    signal_id = json.loads(tf_result)["signal_id"]
+
+    with pytest.raises(RuntimeError, match="renderer bug"):
+        await tools["submit_diagnosis"].ainvoke(
+            {
+                "root_cause_hypothesis": "stg_orders needs a re-run",
+                "root_cause_signal_id": signal_id,
+                "confidence": "low",
+                "evidence_chain": [
+                    {"step": 1, "signal_id": signal_id, "interpretation": "x"}
+                ],
+                "proposal": {
+                    "action": {"action_type": "rerun_dbt_model", "model": "stg_orders"},
+                    "expected_outcome": "stg_orders rebuilds",
+                },
+            }
+        )
+    assert "diagnosis" not in result_holder

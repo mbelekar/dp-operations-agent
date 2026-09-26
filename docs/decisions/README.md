@@ -15,5 +15,6 @@ These records explain the choices that shaped the project, the alternatives cons
 | [0009](0009-no-data-is-unknown-not-ok.md) | Report missing data as `unknown`, not `ok` |
 | [0010](0010-proposals-model-chosen-code-checked.md) | Let the model choose proposals and code check them |
 | [0011](0011-record-approvals-defer-execution.md) | Record approval decisions, defer execution |
+| [0012](0012-typed-signal-payloads.md) | Type signal payloads without changing their JSON |
 
 The ADRs were extracted from working plans so the architectural reasoning remains visible in the repository.

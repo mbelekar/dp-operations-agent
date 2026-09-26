@@ -5,6 +5,26 @@ import pytest
 
 from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
 from dp_ops_agent.evidence.schema import Signal
+from dp_ops_agent.evidence.signals.kafka import (
+    BrokerScope,
+    ConsumerLagTrendObserved,
+    ConsumerLagTrendSignal,
+    GroupScope,
+    GroupTopicScope,
+    HotPartitionSkewObserved,
+    HotPartitionSkewSignal,
+    IsrChurnObserved,
+    IsrChurnSignal,
+    RebalanceFrequencyObserved,
+    RebalanceFrequencySignal,
+    SchemaRegistryCompatObserved,
+    SchemaRegistryCompatSignal,
+    SubjectScope,
+    TopicScope,
+    TopicsScope,
+    UnderReplicatedPartitionsObserved,
+    UnderReplicatedPartitionsSignal,
+)
 from dp_ops_agent.tools.kafka.fixture_gateway import FixtureKafkaGateway
 from dp_ops_agent.tools.kafka.tools import build_kafka_tools
 
@@ -33,7 +53,8 @@ async def test_under_replicated_partitions_detects_urp(tmp_path):
     partitions = signal.observed["partitions"]
     p7 = next(p for p in partitions if p["partition"] == 7)
     assert p7["under_replicated"] is True
-    assert collected == [signal]
+    # What was collected is exactly what the model was shown.
+    assert [s.model_dump_json() for s in collected] == [result]
 
 
 @pytest.mark.asyncio
@@ -260,3 +281,63 @@ async def test_consumer_lag_ignores_partitions_without_a_committed_offset(tmp_pa
     assert signal.severity == "ok"
     assert signal.observed["lag_by_partition"] == {"0": 50}
     assert signal.observed["partitions_without_committed_offset"] == ["1"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool", "args", "signal_class", "scope_class", "observed_class"),
+    [
+        (
+            "under_replicated_partitions",
+            {"topics": ["orders"]},
+            UnderReplicatedPartitionsSignal,
+            TopicsScope,
+            UnderReplicatedPartitionsObserved,
+        ),
+        (
+            "isr_churn",
+            {"broker_id": 1, "window_minutes": 10},
+            IsrChurnSignal,
+            BrokerScope,
+            IsrChurnObserved,
+        ),
+        (
+            "consumer_lag_trend",
+            {"group": "billing-svc", "topic": "orders"},
+            ConsumerLagTrendSignal,
+            GroupTopicScope,
+            ConsumerLagTrendObserved,
+        ),
+        (
+            "rebalance_frequency",
+            {"group": "billing-svc", "window_minutes": 10},
+            RebalanceFrequencySignal,
+            GroupScope,
+            RebalanceFrequencyObserved,
+        ),
+        (
+            "hot_partition_skew",
+            {"topic": "orders", "window_minutes": 10},
+            HotPartitionSkewSignal,
+            TopicScope,
+            HotPartitionSkewObserved,
+        ),
+        (
+            "schema_registry_compat",
+            {"subject": "orders-value"},
+            SchemaRegistryCompatSignal,
+            SubjectScope,
+            SchemaRegistryCompatObserved,
+        ),
+    ],
+)
+async def test_tools_collect_typed_signals(
+    tmp_path, tool, args, signal_class, scope_class, observed_class
+):
+    tools, collected, _ = _build_tools(tmp_path, "healthy_baseline.json")
+    await tools[tool].ainvoke(args)
+
+    [signal] = collected
+    assert type(signal) is signal_class
+    assert type(signal.scope) is scope_class
+    assert type(signal.observed) is observed_class

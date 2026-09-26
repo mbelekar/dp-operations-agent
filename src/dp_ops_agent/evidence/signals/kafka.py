@@ -3,7 +3,16 @@ order in the JSON; see base.py."""
 
 from __future__ import annotations
 
-from dp_ops_agent.evidence.signals.base import Absent, PassThrough, Payload, Scope, SignalTargets
+from typing import Literal
+
+from dp_ops_agent.evidence.signals.base import (
+    Absent,
+    PassThrough,
+    Payload,
+    Scope,
+    SignalBase,
+    SignalTargets,
+)
 
 
 class TopicsScope(Scope):
@@ -97,3 +106,38 @@ class SchemaRegistryCompatObserved(Payload):
     is_compatible: bool | None
     no_data_reason: Absent[str] = None
     known_subjects: Absent[list[str]] = None
+
+
+# --- signals ------------------------------------------------------------------
+# tool and signal_type are fixed per class; they keep their position in the
+# JSON (SignalBase's field order) even though they're redeclared here.
+
+
+class UnderReplicatedPartitionsSignal(SignalBase[TopicsScope, UnderReplicatedPartitionsObserved]):
+    tool: Literal["kafka.under_replicated_partitions"] = "kafka.under_replicated_partitions"
+    signal_type: Literal["under_replicated_partitions"] = "under_replicated_partitions"
+
+
+class IsrChurnSignal(SignalBase[BrokerScope, IsrChurnObserved]):
+    tool: Literal["kafka.isr_churn"] = "kafka.isr_churn"
+    signal_type: Literal["isr_churn"] = "isr_churn"
+
+
+class ConsumerLagTrendSignal(SignalBase[GroupTopicScope, ConsumerLagTrendObserved]):
+    tool: Literal["kafka.consumer_lag_trend"] = "kafka.consumer_lag_trend"
+    signal_type: Literal["consumer_lag_trend"] = "consumer_lag_trend"
+
+
+class RebalanceFrequencySignal(SignalBase[GroupScope, RebalanceFrequencyObserved]):
+    tool: Literal["kafka.rebalance_frequency"] = "kafka.rebalance_frequency"
+    signal_type: Literal["rebalance_frequency"] = "rebalance_frequency"
+
+
+class HotPartitionSkewSignal(SignalBase[TopicScope, HotPartitionSkewObserved]):
+    tool: Literal["kafka.hot_partition_skew"] = "kafka.hot_partition_skew"
+    signal_type: Literal["hot_partition_skew"] = "hot_partition_skew"
+
+
+class SchemaRegistryCompatSignal(SignalBase[SubjectScope, SchemaRegistryCompatObserved]):
+    tool: Literal["kafka.schema_registry_compat"] = "kafka.schema_registry_compat"
+    signal_type: Literal["schema_registry_compat"] = "schema_registry_compat"

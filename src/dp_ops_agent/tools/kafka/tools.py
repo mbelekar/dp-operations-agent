@@ -8,6 +8,27 @@ from langchain_core.tools import BaseTool, tool
 from dp_ops_agent.audit.models import AuditEvent
 from dp_ops_agent.audit.sink import AuditSink
 from dp_ops_agent.evidence.schema import Severity, Signal
+from dp_ops_agent.evidence.signals.kafka import (
+    BrokerScope,
+    ConsumerLagTrendObserved,
+    ConsumerLagTrendSignal,
+    GroupScope,
+    GroupTopicScope,
+    HotPartitionSkewObserved,
+    HotPartitionSkewSignal,
+    IsrChurnObserved,
+    IsrChurnSignal,
+    PartitionState,
+    RebalanceFrequencyObserved,
+    RebalanceFrequencySignal,
+    SchemaRegistryCompatObserved,
+    SchemaRegistryCompatSignal,
+    SubjectScope,
+    TopicScope,
+    TopicsScope,
+    UnderReplicatedPartitionsObserved,
+    UnderReplicatedPartitionsSignal,
+)
 from dp_ops_agent.tools.kafka.gateway import KafkaMetricsGateway
 from dp_ops_agent.tools.known_identifiers import capped, describe
 
@@ -32,15 +53,14 @@ def _record_signal(
     return signal.model_dump_json()
 
 
-def _no_data(field: str, label: str, identifier: Any, known: list, what: str) -> dict:
-    """observed fields for an unknown result: if the identifier exists, say
-    so and not to retry it (e.g. a real topic that never reports per-partition
-    throughput); otherwise list the ones that do exist (ADR-0009)."""
+def _no_data_reason(label: str, identifier: Any, known: list[Any], what: str) -> str:
+    """no_data_reason for an unknown result: if the identifier exists, say so
+    and not to retry it (e.g. a real topic that never reports per-partition
+    throughput); otherwise list the ones that do exist (ADR-0009). The
+    caller puts capped(known) in the payload's known_* field."""
     if identifier in known:
-        reason = f"{label} {identifier!r} exists but {what}; don't retry it"
-    else:
-        reason = f"no {label} {identifier!r}; known {label}s: {describe([str(k) for k in known])}"
-    return {"no_data_reason": reason, field: capped(known)}
+        return f"{label} {identifier!r} exists but {what}; don't retry it"
+    return f"no {label} {identifier!r}; known {label}s: {describe([str(k) for k in known])}"
 
 
 def build_kafka_tools(
@@ -57,40 +77,36 @@ def build_kafka_tools(
         now = datetime.now(UTC)
         meta = gateway.cluster_metadata(topics)
         partitions = [
-            {
-                "topic": p.topic,
-                "partition": p.id,
-                "replicas": p.replicas,
-                "isr": p.isr,
-                "under_replicated": len(p.isr) < len(p.replicas),
-                "offline": p.leader == -1,
-            }
+            PartitionState(
+                topic=p.topic,
+                partition=p.id,
+                replicas=p.replicas,
+                isr=p.isr,
+                under_replicated=len(p.isr) < len(p.replicas),
+                offline=p.leader == -1,
+            )
             for p in meta.partitions
         ]
-        critical = any(p["under_replicated"] or p["offline"] for p in partitions)
-        observed: dict = {"partitions": partitions}
+        critical = any(p.under_replicated or p.offline for p in partitions)
+        observed = UnderReplicatedPartitionsObserved(partitions=partitions)
         if not partitions:
             severity: Severity = "unknown"
             known_topics = gateway.list_topics()
             missing = [t for t in topics if t not in known_topics]
-            observed.update(
-                _no_data(
-                    "known_topics",
-                    "topic",
-                    missing[0] if missing else topics[0],
-                    known_topics,
-                    "reports no partition metadata",
-                )
+            observed.no_data_reason = _no_data_reason(
+                "topic",
+                missing[0] if missing else topics[0],
+                known_topics,
+                "reports no partition metadata",
             )
+            observed.known_topics = capped(known_topics)
         else:
             severity = "critical" if critical else "ok"
-        signal = Signal(
-            tool="kafka.under_replicated_partitions",
-            signal_type="under_replicated_partitions",
+        signal = UnderReplicatedPartitionsSignal(
             collected_at=now,
             window_start=now,
             window_end=now,
-            scope={"topics": ",".join(topics)},
+            scope=TopicsScope(topics=",".join(topics)),
             observed=observed,
             severity=severity,
             raw_source_ref="AdminClient.list_topics(metadata)",
@@ -110,33 +126,27 @@ def build_kafka_tools(
         shrinks = [s.value for s in metrics.get("IsrShrinksPerSec", [])]
         expands = [s.value for s in metrics.get("IsrExpandsPerSec", [])]
         max_shrink_rate = max(shrinks, default=0.0)
-        observed = {
-            "isr_shrinks_per_sec": shrinks,
-            "isr_expands_per_sec": expands,
-            "max_shrink_rate": max_shrink_rate,
-        }
+        observed = IsrChurnObserved(
+            isr_shrinks_per_sec=shrinks,
+            isr_expands_per_sec=expands,
+            max_shrink_rate=max_shrink_rate,
+        )
         if not shrinks and not expands:
             severity: Severity = "unknown"
-            observed.update(
-                _no_data(
-                    "known_brokers",
-                    "broker",
-                    broker_id,
-                    gateway.list_brokers(),
-                    "reports no ISR shrink/expand metrics",
-                )
+            known_brokers = gateway.list_brokers()
+            observed.no_data_reason = _no_data_reason(
+                "broker", broker_id, known_brokers, "reports no ISR shrink/expand metrics"
             )
+            observed.known_brokers = capped(known_brokers)
         else:
             severity = (
                 "critical" if max_shrink_rate > 0.5 else ("warn" if max_shrink_rate > 0 else "ok")
             )
-        signal = Signal(
-            tool="kafka.isr_churn",
-            signal_type="isr_churn",
+        signal = IsrChurnSignal(
             collected_at=now,
             window_start=now - timedelta(minutes=window_minutes),
             window_end=now,
-            scope={"broker_id": str(broker_id)},
+            scope=BrokerScope(broker_id=str(broker_id)),
             observed=observed,
             severity=severity,
             raw_source_ref=f"jmx:kafka.server:type=ReplicaManager,broker={broker_id}",
@@ -159,42 +169,35 @@ def build_kafka_tools(
         }
         without_offset = [str(pid) for pid in sorted(watermarks) if pid not in offsets]
         max_lag = max(lag_by_partition.values(), default=0)
-        observed = {
-            "lag_by_partition": lag_by_partition,
-            "max_lag": max_lag,
-            "partitions_without_committed_offset": without_offset,
-        }
+        observed = ConsumerLagTrendObserved(
+            lag_by_partition=lag_by_partition,
+            max_lag=max_lag,
+            partitions_without_committed_offset=without_offset,
+        )
         if not watermarks:
             severity: Severity = "unknown"
-            observed.update(
-                _no_data(
-                    "known_topics",
-                    "topic",
-                    topic,
-                    gateway.list_topics(),
-                    "reports no partition high watermarks",
-                )
+            known_topics = gateway.list_topics()
+            observed.no_data_reason = _no_data_reason(
+                "topic", topic, known_topics, "reports no partition high watermarks"
             )
+            observed.known_topics = capped(known_topics)
         elif not lag_by_partition:
             severity = "unknown"
-            observed.update(
-                _no_data(
-                    "known_groups",
-                    "consumer group",
-                    group,
-                    gateway.list_consumer_groups(),
-                    f"has no committed offsets on topic {topic!r}",
-                )
+            known_groups = gateway.list_consumer_groups()
+            observed.no_data_reason = _no_data_reason(
+                "consumer group",
+                group,
+                known_groups,
+                f"has no committed offsets on topic {topic!r}",
             )
+            observed.known_groups = capped(known_groups)
         else:
             severity = "critical" if max_lag > 10_000 else ("warn" if max_lag > 1_000 else "ok")
-        signal = Signal(
-            tool="kafka.consumer_lag_trend",
-            signal_type="consumer_lag_trend",
+        signal = ConsumerLagTrendSignal(
             collected_at=now,
             window_start=now,
             window_end=now,
-            scope={"group": group, "topic": topic},
+            scope=GroupTopicScope(group=group, topic=topic),
             observed=observed,
             severity=severity,
             raw_source_ref="AdminClient consumer offsets + watermark offsets",
@@ -210,29 +213,25 @@ def build_kafka_tools(
         history = gateway.consumer_group_state_history(group, window_minutes)
         rebalance_states = {"PreparingRebalance", "CompletingRebalance"}
         rebalance_count = sum(1 for h in history if h.get("state") in rebalance_states)
-        observed = {"state_history": history, "rebalance_count": rebalance_count}
+        observed = RebalanceFrequencyObserved(
+            state_history=history, rebalance_count=rebalance_count
+        )
         if not history:
             severity: Severity = "unknown"
-            observed.update(
-                _no_data(
-                    "known_groups",
-                    "consumer group",
-                    group,
-                    gateway.list_consumer_groups(),
-                    "has no state history",
-                )
+            known_groups = gateway.list_consumer_groups()
+            observed.no_data_reason = _no_data_reason(
+                "consumer group", group, known_groups, "has no state history"
             )
+            observed.known_groups = capped(known_groups)
         else:
             severity = (
                 "critical" if rebalance_count > 5 else ("warn" if rebalance_count > 1 else "ok")
             )
-        signal = Signal(
-            tool="kafka.rebalance_frequency",
-            signal_type="rebalance_frequency",
+        signal = RebalanceFrequencySignal(
             collected_at=now,
             window_start=now - timedelta(minutes=window_minutes),
             window_end=now,
-            scope={"group": group},
+            scope=GroupScope(group=group),
             observed=observed,
             severity=severity,
             raw_source_ref="AdminClient.describe_consumer_groups",
@@ -250,31 +249,25 @@ def build_kafka_tools(
         avg = sum(values) / len(values) if values else 0.0
         max_val = max(values, default=0.0)
         skew_ratio = (max_val / avg) if avg > 0 else 0.0
-        observed = {
-            "throughput_by_partition": {str(k): v for k, v in throughput.items()},
-            "avg_throughput": avg,
-            "skew_ratio": skew_ratio,
-        }
+        observed = HotPartitionSkewObserved(
+            throughput_by_partition={str(k): v for k, v in throughput.items()},
+            avg_throughput=avg,
+            skew_ratio=skew_ratio,
+        )
         if not throughput:
             severity: Severity = "unknown"
-            observed.update(
-                _no_data(
-                    "known_topics",
-                    "topic",
-                    topic,
-                    gateway.list_topics(),
-                    "reports no per-partition throughput",
-                )
+            known_topics = gateway.list_topics()
+            observed.no_data_reason = _no_data_reason(
+                "topic", topic, known_topics, "reports no per-partition throughput"
             )
+            observed.known_topics = capped(known_topics)
         else:
             severity = "critical" if skew_ratio > 5 else ("warn" if skew_ratio > 2 else "ok")
-        signal = Signal(
-            tool="kafka.hot_partition_skew",
-            signal_type="hot_partition_skew",
+        signal = HotPartitionSkewSignal(
             collected_at=now,
             window_start=now - timedelta(minutes=window_minutes),
             window_end=now,
-            scope={"topic": topic},
+            scope=TopicScope(topic=topic),
             observed=observed,
             severity=severity,
             raw_source_ref="jmx:kafka_topic_partition_bytesinpersec",
@@ -288,31 +281,32 @@ def build_kafka_tools(
         incompatible schema change."""
         now = datetime.now(UTC)
         result = gateway.schema_registry_subject(subject)
-        observed: dict[str, Any] = {"raw": result}
         if not result or "is_compatible" not in result:
             # An empty or unrecognized response is no compatibility verdict at
             # all, not a compatible one.
             severity: Severity = "unknown"
-            observed["is_compatible"] = None
-            observed.update(
-                _no_data(
-                    "known_subjects",
+            known_subjects = gateway.list_schema_subjects()
+            observed = SchemaRegistryCompatObserved(
+                raw=result,
+                is_compatible=None,
+                no_data_reason=_no_data_reason(
                     "schema subject",
                     subject,
-                    gateway.list_schema_subjects(),
+                    known_subjects,
                     "has no compatibility verdict available",
-                )
+                ),
+                known_subjects=capped(known_subjects),
             )
         else:
-            observed["is_compatible"] = result["is_compatible"]
+            observed = SchemaRegistryCompatObserved(
+                raw=result, is_compatible=result["is_compatible"]
+            )
             severity = "ok" if result["is_compatible"] else "critical"
-        signal = Signal(
-            tool="kafka.schema_registry_compat",
-            signal_type="schema_registry_compat",
+        signal = SchemaRegistryCompatSignal(
             collected_at=now,
             window_start=now,
             window_end=now,
-            scope={"subject": subject},
+            scope=SubjectScope(subject=subject),
             observed=observed,
             severity=severity,
             raw_source_ref=f"schema-registry:/compatibility/subjects/{subject}/versions/latest",

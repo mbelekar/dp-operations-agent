@@ -24,6 +24,8 @@ dev = [
     "freezegun>=1.5.5,<2",
     "ruff>=0.16.9,<1",
     "mypy>=2.3.1,<3",
+    "pytest-cov>=7.1.0,<8",
+    "pip-audit>=2.10.1,<3",
 ]
 
 [project.scripts]
@@ -73,3 +75,15 @@ plugins = ["pydantic.mypy"]
 # confluent-kafka ships no type stubs.
 module = ["confluent_kafka", "confluent_kafka.*"]
 ignore_missing_imports = true
+
+# Used by `pytest --cov` (CI). Not in pytest's addopts, so a subset run
+# like `./auto/test -k foo` doesn't fail the threshold.
+[tool.coverage.run]
+source = ["dp_ops_agent"]
+branch = false
+
+[tool.coverage.report]
+# Current coverage rounded down: a floor against regressions, not a target.
+fail_under = 90
+show_missing = true
+skip_covered = true

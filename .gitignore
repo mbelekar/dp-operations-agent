@@ -10,6 +10,7 @@ logs/audit/*.jsonl
 logs/evals/*.jsonl
 .pytest_cache/
 .mypy_cache/
+.coverage
 docs/plans/
 logs/
 tests/tmp/

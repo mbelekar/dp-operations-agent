@@ -41,7 +41,7 @@ def _root() -> None:
     """Data Platform Operations Agent CLI."""
     # A no-op callback keeps Typer in subcommand-group mode even with a
     # single command registered today (Typer collapses to a flat command
-    # with no subcommand name otherwise) — needed so `diagnose` stays valid
+    # with no subcommand name otherwise). That's needed so `diagnose` stays valid
     # as later phases add more subcommands (e.g. approve, execute).
 
 

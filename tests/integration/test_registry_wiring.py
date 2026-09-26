@@ -181,7 +181,7 @@ async def test_submit_diagnosis_rejects_empty_evidence_chain(tmp_path):
 
 @pytest.mark.asyncio
 async def test_flagship_cross_system_fixture_evidence_is_retrievable_and_gradeable(tmp_path):
-    """Not a live-model assertion (that's what ./auto/eval is for) — just
+    """Not a live-model assertion (that's what ./auto/eval is for), just
     that the flagship fixture set (Flink watermark lag -> lineage -> Kafka
     isr_churn) actually wires together: each tool returns the expected
     severity, and a diagnosis citing the Kafka signal as root cause (despite

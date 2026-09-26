@@ -39,4 +39,4 @@ The field was no longer provided by the caller or model.
 - System attribution became verifiable against collected evidence.
 - A Flink-specific registry test now guards against silent regression.
 - The change exposed a broader rule: when new capabilities invalidate an old assumption, re-derive the value from data instead of preserving the stale default.
-- Cross-system lineage later invalidated the “first evidence entry” assumption, leading to [ADR-0007](0007-root-cause-signal-id.md).
+- Cross-system lineage later invalidated the "first evidence entry" assumption, leading to [ADR-0007](0007-root-cause-signal-id.md).

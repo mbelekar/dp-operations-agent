@@ -7,7 +7,7 @@ mirroring tools/kafka/gateway.py's split.
 Verified against the real Flink REST API before writing this: GET
 /jobs/:jobid/checkpoints, GET /jobs/:jobid/vertices/:vertexid/backpressure,
 GET /jobs/:jobid/vertices/:vertexid/metrics, GET /jobs/:jobid/exceptions.
-There is no dedicated REST field for "savepoint restore failure" — it has to
+There is no dedicated REST field for "savepoint restore failure"; it has to
 be inferred from the exceptions endpoint (see tools/flink/tools.py), so
 job_exceptions() is the one method here without a matching clean status
 field on the Flink side.

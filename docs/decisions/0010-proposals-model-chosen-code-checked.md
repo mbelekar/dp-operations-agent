@@ -35,7 +35,7 @@ The project already validates model claims about evidence, diagnosed system, and
 | Match the action system to the root-cause system | Prevents, for example, a Kafka replay for a Flink root cause |
 | Require targets to appear in collected signal scope | The agent can act only on identifiers it investigated |
 | Limit a Kafka replay to 100,000 offsets on one partition and group | Wider replays are Tier 2 and are rejected |
-| Treat no proposal as Tier 0 | “No safe catalog action applies” remains a valid conclusion |
+| Treat no proposal as Tier 0 | "No safe catalog action applies" remains a valid conclusion |
 
 Kafka replay partition and offset values do not appear in signal scope. Their risk is controlled by the Tier 1 replay limit instead.
 

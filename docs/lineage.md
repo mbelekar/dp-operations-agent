@@ -24,7 +24,7 @@ This is cross-system localization, not two unrelated single-system checks.
 
 A lineage result is graph structure, not a health verdict. It is never `warn` or `critical`. The agent must investigate the returned upstream node with the appropriate diagnostic tools.
 
-For a known node, an empty upstream list means “this node has no recorded ancestors.” For an unknown node, an empty result means “no lineage data exists.” The module keeps those cases distinct with `LineageGraphView.node_found`.
+For a known node, an empty upstream list means "this node has no recorded ancestors." For an unknown node, an empty result means "no lineage data exists." The module keeps those cases distinct with `LineageGraphView.node_found`.
 
 ## Flagship scenario
 
@@ -56,11 +56,11 @@ The implementation has been verified against Marquez 0.51.1 using the Docker dem
 
 ### Error handling
 
-- A Marquez “job not found” or “dataset not found” response becomes `node_found: false` and `severity: unknown`.
+- A Marquez "job not found" or "dataset not found" response becomes `node_found: false` and `severity: unknown`.
 - An unrelated 404, such as a bad URL path, remains a tool error.
 - Server errors remain tool errors.
 
-This prevents a configuration problem from being misreported as “nothing upstream.”
+This prevents a configuration problem from being misreported as "nothing upstream."
 
 ## Node IDs
 

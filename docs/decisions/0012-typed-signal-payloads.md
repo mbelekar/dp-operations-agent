@@ -65,7 +65,7 @@ The model and audit log already depend on the tool JSON, so the migration preser
 | Different result branches | Separate payload models represent distinct shapes |
 | Unexpected fields | Payload models use `extra="forbid"` |
 
-Sixty-three snapshot cases in `tests/integration/test_signal_json_snapshot.py` protect the existing JSON across normal, error, and no-data branches.
+Sixty-three snapshot cases in `tests/integration/test_signal_json_snapshot.py` protect the existing JSON across normal, no-data, and not-found branches.
 
 ## Typing boundary
 

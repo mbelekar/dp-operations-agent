@@ -20,7 +20,7 @@ The actual rule is:
 | Passed | Changed | Model regression is the stronger suspect |
 | No previous run | Unknown | Investigate both directions |
 
-“Code changed” is calculated from the current and previous `manifest.json` checksums, using the same basis as dbt's `state:modified` selector. The model does not infer it.
+"Code changed" is calculated from the current and previous `manifest.json` checksums, using the same basis as dbt's `state:modified` selector. The model does not infer it.
 
 ## What it can diagnose
 
@@ -133,7 +133,7 @@ Real dbt OpenLineage events use warehouse-connection namespaces. Mapping these i
 3. Upstream systems are healthy.
 4. The correct root cause is the dbt `test_failure`, with `system: dbt`.
 
-The second scenario prevents the agent from learning a simplistic “always blame upstream” rule.
+The second scenario prevents the agent from learning a simplistic "always blame upstream" rule.
 
 ### Transient model failure
 

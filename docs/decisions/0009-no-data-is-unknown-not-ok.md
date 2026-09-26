@@ -75,7 +75,7 @@ Broker IDs are a special case: `isr_churn` may use the numeric broker IDs return
 | Alternative | Why it was rejected or deferred |
 | --- | --- |
 | Keep `ok` and add `data_available: false` | Rejected. Consumers naturally trust the severity field, so `ok` would remain misleading. |
-| Raise a tool error | Rejected. “No data for this identifier” is different from a backend failure, and an error would leave no citable signal describing the gap. |
+| Raise a tool error | Rejected. "No data for this identifier" is different from a backend failure, and an error would leave no citable signal describing the gap. |
 | Change every gateway method to return `None` | Deferred. It would require broad protocol and fixture changes without being necessary for this correction. |
 | Add separate discovery tools | Rejected for now. They add a round trip, still require the model to call them first, and duplicate hints that can be returned only when needed. |
 

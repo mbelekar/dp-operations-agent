@@ -24,7 +24,7 @@ Model logic changed → investigate the dbt model
 Model unchanged      → investigate upstream inputs
 ```
 
-That decision requires previous-run results and a deterministic definition of “code changed.” Schema-change diagnosis also needs actual warehouse column shapes.
+That decision requires previous-run results and a deterministic definition of "code changed." Schema-change diagnosis also needs actual warehouse column shapes.
 
 ## Unknown previous state
 

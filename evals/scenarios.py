@@ -4,7 +4,7 @@ unit test suites rather than authoring new incident data.
 
 Every scenario needs a Kafka, a Flink, a lineage, and a dbt fixture, since
 all four tool sets are always available in a session (see the gateway-wiring
-decisions in docs/decisions/) — a single-system incident still runs with
+decisions in docs/decisions/). A single-system incident still runs with
 healthy fixtures for the other systems and an empty lineage graph so the model has to notice
 there's nothing else worth investigating, not because those tools don't
 exist.

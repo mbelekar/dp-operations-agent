@@ -10,7 +10,7 @@ Require every diagnosis to cite typed signals collected through tools during the
 
 ## Context
 
-An instruction such as “only make claims supported by evidence” does not guarantee that an LLM will comply. The project needs a deterministic boundary between model reasoning and accepted output.
+An instruction such as "only make claims supported by evidence" does not guarantee that an LLM will comply. The project needs a deterministic boundary between model reasoning and accepted output.
 
 ## How it works
 

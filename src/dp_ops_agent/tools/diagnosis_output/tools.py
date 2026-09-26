@@ -84,7 +84,7 @@ def _derive_system(root_cause: Signal) -> DiagnosedSystem | None:
     """The diagnosed system is derived from the root-cause signal's class
     (each concrete signal class declares it, matching its Signal.tool prefix,
     e.g. "flink.checkpoint_failure" -> "flink"), not asserted by the model or
-    fixed by the caller — same philosophy as evidence grounding:
+    fixed by the caller. Same philosophy as evidence grounding:
     don't trust a claim that can be derived from real collected data. Takes
     the root_cause_signal_id's signal specifically (not "whichever
     evidence_chain entry comes first"), since a cross-system diagnosis can

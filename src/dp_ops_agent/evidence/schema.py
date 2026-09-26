@@ -10,51 +10,27 @@ ApprovalRecord records a human's decision on a proposal (Phase 4, ADR-0011).
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, model_validator
 
-SignalType = Literal[
-    "consumer_lag_trend",
-    "under_replicated_partitions",
-    "isr_churn",
-    "rebalance_frequency",
-    "hot_partition_skew",
-    "schema_registry_compat",
-    "checkpoint_failure",
-    "backpressure_ratio",
-    "watermark_lag",
-    "state_backend_disk_pressure",
-    "savepoint_restore_failure",
-    "lineage_upstream",
-    "test_failure",
-    "model_run_failure",
-    "freshness_check_failure",
-    "incremental_model_drift",
-    "dependency_graph_compile_error",
-]
+# Severity and SignalType are defined with the signal envelope and
+# re-exported here, where the rest of the code imports them from.
+from dp_ops_agent.evidence.signals.base import Severity as Severity
+from dp_ops_agent.evidence.signals.base import SignalBase
+from dp_ops_agent.evidence.signals.base import SignalType as SignalType
 
-# "unknown": the tool found no data for the identifiers it was asked about
-# (an unknown vertex, topic, node...). Not evidence of health, see ADR-0009.
-Severity = Literal["ok", "warn", "critical", "unknown"]
 Tier = Literal[0, 1, 2]
 # The systems a diagnosis can be about. Lineage signals aren't one of them:
 # they show where to look, and the root cause is on the system they point to.
 DiagnosedSystem = Literal["kafka", "flink", "dbt"]
 
 
-class Signal(BaseModel):
-    signal_id: str = Field(default_factory=lambda: str(uuid4()))
-    tool: str
-    signal_type: SignalType
-    collected_at: datetime
-    window_start: datetime
-    window_end: datetime
-    scope: dict[str, str] = Field(default_factory=dict)
-    observed: dict[str, Any]
-    severity: Severity
-    raw_source_ref: str | None = None
+# Unparametrized while the tools migrate to typed payloads (ADR-0012 once
+# complete): scope and observed are validated as Any until each system's
+# tools construct their typed Signal subclasses.
+Signal = SignalBase
 
 
 class EvidenceChainEntry(BaseModel):

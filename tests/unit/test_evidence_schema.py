@@ -114,7 +114,7 @@ def test_diagnosis_accepts_dbt_root_cause(signal_type):
     signal = _make_signal(tool=f"dbt.{signal_type}", signal_type=signal_type, scope={})
     diagnosis = Diagnosis(
         session_id="s1",
-        system=_derive_system(signal.signal_id, [signal]),
+        system=_derive_system(signal),
         root_cause_hypothesis="dbt-side root cause",
         root_cause_signal_id=signal.signal_id,
         confidence="high",

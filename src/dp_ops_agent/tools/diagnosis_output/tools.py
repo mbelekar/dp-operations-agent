@@ -79,22 +79,17 @@ def _build_proposal(proposal: _ProposalInput | None) -> Proposal | None:
     )
 
 
-def _derive_system(root_cause_signal_id: str, collected_signals: list[Signal]) -> str:
+def _derive_system(root_cause: Signal) -> str:
     """The diagnosed system is derived from the root-cause signal's Signal.tool
     prefix (e.g. "flink.checkpoint_failure" -> "flink"), not asserted by the
     model or fixed by the caller — same philosophy as evidence grounding:
-    don't trust a claim that can be derived from real collected data. Looks
-    up root_cause_signal_id specifically (not "whichever evidence_chain entry
-    comes first"), since a cross-system diagnosis can legitimately cite
-    signals from more than one system, only the root cause's system is what
-    Diagnosis.system means. If lookup fails, the fallback value here is
-    never actually returned — Diagnosis construction fails with a clear
-    grounding error (evidence_chain_is_grounded) before the caller sees it.
+    don't trust a claim that can be derived from real collected data. Takes
+    the root_cause_signal_id's signal specifically (not "whichever
+    evidence_chain entry comes first"), since a cross-system diagnosis can
+    legitimately cite signals from more than one system, only the root
+    cause's system is what Diagnosis.system means.
     """
-    signal = next((s for s in collected_signals if s.signal_id == root_cause_signal_id), None)
-    if signal is not None:
-        return signal.tool.split(".", 1)[0]
-    return "kafka"
+    return root_cause.tool.split(".", 1)[0]
 
 
 def build_diagnosis_output_tools(
@@ -124,11 +119,22 @@ def build_diagnosis_output_tools(
         actually received from a tool call, and root_cause_signal_id must be
         one of those cited signal_ids. An optional proposal names one catalog
         action to remediate the root cause; nothing is executed."""
+        root_cause = next(
+            (s for s in collected_signals if s.signal_id == root_cause_signal_id), None
+        )
+        if root_cause is None:
+            # Rejected here, not by Diagnosis: without the signal there is no
+            # system to derive, and a missing system would fail validation on
+            # a field the model doesn't control instead of on grounding.
+            return (
+                f"submit_diagnosis rejected: root_cause_signal_id {root_cause_signal_id!r} "
+                "is not a signal collected this session"
+            )
         try:
             built_proposal = _build_proposal(proposal)
             diagnosis = Diagnosis(
                 session_id=session_id,
-                system=_derive_system(root_cause_signal_id, collected_signals),
+                system=_derive_system(root_cause),
                 root_cause_hypothesis=root_cause_hypothesis,
                 root_cause_signal_id=root_cause_signal_id,
                 confidence=confidence,

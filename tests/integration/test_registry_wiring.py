@@ -601,3 +601,27 @@ async def test_submit_diagnosis_propagates_a_bug_instead_of_rejecting(tmp_path, 
             }
         )
     assert "diagnosis" not in result_holder
+
+
+@pytest.mark.asyncio
+async def test_submit_diagnosis_rejects_unknown_root_cause_with_grounding_message(tmp_path):
+    tools, result_holder = _build_tools(tmp_path, "wiring-test-unknown-root")
+    tf_result = await tools["test_failure"].ainvoke({"model": "stg_orders"})
+    signal_id = json.loads(tf_result)["signal_id"]
+
+    submit_result = await tools["submit_diagnosis"].ainvoke(
+        {
+            "root_cause_hypothesis": "made up",
+            "root_cause_signal_id": "never-collected",
+            "confidence": "low",
+            "evidence_chain": [
+                {"step": 1, "signal_id": signal_id, "interpretation": "x"}
+            ],
+        }
+    )
+
+    assert submit_result == (
+        "submit_diagnosis rejected: root_cause_signal_id 'never-collected' is not a "
+        "signal collected this session"
+    )
+    assert "diagnosis" not in result_holder

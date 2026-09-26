@@ -5,6 +5,20 @@ import pytest
 
 from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
 from dp_ops_agent.evidence.schema import Signal
+from dp_ops_agent.evidence.signals.flink import (
+    BackpressureRatioObserved,
+    BackpressureRatioSignal,
+    CheckpointFailureObserved,
+    CheckpointFailureSignal,
+    JobScope,
+    JobVertexScope,
+    SavepointRestoreFailureObserved,
+    SavepointRestoreFailureSignal,
+    StateBackendDiskPressureObserved,
+    StateBackendDiskPressureSignal,
+    WatermarkLagObserved,
+    WatermarkLagSignal,
+)
 from dp_ops_agent.tools.flink.fixture_gateway import FixtureFlinkGateway
 from dp_ops_agent.tools.flink.tools import build_flink_tools
 
@@ -31,7 +45,8 @@ async def test_checkpoint_failure_detects_repeated_failures(tmp_path):
 
     assert signal.severity == "critical"
     assert signal.observed["counts"]["failed"] == 5
-    assert collected == [signal]
+    # What was collected is exactly what the model was shown.
+    assert [s.model_dump_json() for s in collected] == [result]
 
 
 @pytest.mark.asyncio
@@ -181,3 +196,56 @@ async def test_savepoint_restore_with_no_exceptions_is_still_ok(tmp_path):
     )
 
     assert signal.severity == "ok"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool", "args", "signal_class", "scope_class", "observed_class"),
+    [
+        (
+            "checkpoint_failure",
+            {"job_id": "orders-processing-job"},
+            CheckpointFailureSignal,
+            JobScope,
+            CheckpointFailureObserved,
+        ),
+        (
+            "backpressure_ratio",
+            {"job_id": "orders-processing-job", "vertex_id": "source"},
+            BackpressureRatioSignal,
+            JobVertexScope,
+            BackpressureRatioObserved,
+        ),
+        (
+            "watermark_lag",
+            {"job_id": "orders-processing-job", "vertex_id": "source"},
+            WatermarkLagSignal,
+            JobVertexScope,
+            WatermarkLagObserved,
+        ),
+        (
+            "state_backend_disk_pressure",
+            {"job_id": "orders-processing-job", "vertex_id": "source"},
+            StateBackendDiskPressureSignal,
+            JobVertexScope,
+            StateBackendDiskPressureObserved,
+        ),
+        (
+            "savepoint_restore_failure",
+            {"job_id": "orders-processing-job", "window_minutes": 60},
+            SavepointRestoreFailureSignal,
+            JobScope,
+            SavepointRestoreFailureObserved,
+        ),
+    ],
+)
+async def test_tools_collect_typed_signals(
+    tmp_path, tool, args, signal_class, scope_class, observed_class
+):
+    tools, collected, _ = _build_tools(tmp_path, "healthy_baseline.json")
+    await tools[tool].ainvoke(args)
+
+    [signal] = collected
+    assert type(signal) is signal_class
+    assert type(signal.scope) is scope_class
+    assert type(signal.observed) is observed_class

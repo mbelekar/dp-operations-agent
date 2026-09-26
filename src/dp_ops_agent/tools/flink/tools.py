@@ -1,13 +1,27 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 from langchain_core.tools import BaseTool, tool
 
 from dp_ops_agent.audit.models import AuditEvent
 from dp_ops_agent.audit.sink import AuditSink
 from dp_ops_agent.evidence.schema import Severity, Signal
+from dp_ops_agent.evidence.signals.flink import (
+    BackpressureRatioObserved,
+    BackpressureRatioSignal,
+    CheckpointFailureObserved,
+    CheckpointFailureSignal,
+    JobScope,
+    JobVertexScope,
+    NamedRef,
+    SavepointRestoreFailureObserved,
+    SavepointRestoreFailureSignal,
+    StateBackendDiskPressureObserved,
+    StateBackendDiskPressureSignal,
+    WatermarkLagObserved,
+    WatermarkLagSignal,
+)
 from dp_ops_agent.tools.flink.gateway import FlinkMetricsGateway, NamedId
 from dp_ops_agent.tools.known_identifiers import capped, describe
 
@@ -34,8 +48,8 @@ def _record_signal(
     return signal.model_dump_json()
 
 
-def _refs(items: list[NamedId]) -> list[dict[str, str]]:
-    return [i.model_dump() for i in capped(items)]
+def _refs(items: list[NamedId]) -> list[NamedRef]:
+    return [NamedRef(id=i.id, name=i.name) for i in capped(items)]
 
 
 def _describe_refs(items: list[NamedId]) -> str:
@@ -48,35 +62,37 @@ def build_flink_tools(
     session_id: str,
     collected_signals: list[Signal],
 ) -> list[BaseTool]:
-    def _no_vertex_data(job_id: str, vertex_id: str, what: str) -> dict:
-        """observed fields for an unknown result on a vertex lookup: whether
-        the vertex exists (then don't retry it) or which ones do."""
+    def _set_no_vertex_data(
+        observed: BackpressureRatioObserved
+        | WatermarkLagObserved
+        | StateBackendDiskPressureObserved,
+        job_id: str,
+        vertex_id: str,
+        what: str,
+    ) -> None:
+        """Fill in an unknown result on a vertex lookup: whether the vertex
+        exists (then don't retry it) or which ones do."""
         vertices = gateway.list_vertices(job_id)
         if any(v.id == vertex_id for v in vertices):
-            return {
-                "no_data_reason": (
-                    f"vertex {vertex_id!r} of job {job_id!r} exists but reports no {what}; "
-                    "don't retry it"
-                ),
-                "known_vertices": _refs(vertices),
-            }
-        if vertices:
-            return {
-                "no_data_reason": (
-                    f"no vertex {vertex_id!r} in job {job_id!r}; its vertices (pass the id): "
-                    f"{_describe_refs(vertices)}"
-                ),
-                "known_vertices": _refs(vertices),
-            }
-        jobs = gateway.list_jobs()
-        return {
-            "no_data_reason": (
+            observed.no_data_reason = (
+                f"vertex {vertex_id!r} of job {job_id!r} exists but reports no {what}; "
+                "don't retry it"
+            )
+            observed.known_vertices = _refs(vertices)
+        elif vertices:
+            observed.no_data_reason = (
+                f"no vertex {vertex_id!r} in job {job_id!r}; its vertices (pass the id): "
+                f"{_describe_refs(vertices)}"
+            )
+            observed.known_vertices = _refs(vertices)
+        else:
+            jobs = gateway.list_jobs()
+            observed.no_data_reason = (
                 f"no vertices found for job {job_id!r}; known jobs (pass the id): "
                 f"{_describe_refs(jobs)}"
-            ),
-            "known_vertices": [],
-            "known_jobs": _refs(jobs),
-        }
+            )
+            observed.known_vertices = []
+            observed.known_jobs = _refs(jobs)
 
     @tool
     async def checkpoint_failure(job_id: str) -> str:
@@ -86,31 +102,29 @@ def build_flink_tools(
         view = gateway.checkpoint_history(job_id)
         most_recent_failed = bool(view.history) and view.history[-1].status == "FAILED"
         critical = most_recent_failed or view.counts.failed >= 3
-        observed: dict[str, Any] = {
-            "counts": view.counts.model_dump(),
-            "most_recent_status": view.history[-1].status if view.history else None,
-        }
+        observed = CheckpointFailureObserved(
+            counts=view.counts,
+            most_recent_status=view.history[-1].status if view.history else None,
+        )
         if view.counts.total == 0 and not view.history:
             severity: Severity = "unknown"
             jobs = gateway.list_jobs()
-            observed["known_jobs"] = _refs(jobs)
+            observed.known_jobs = _refs(jobs)
             if any(j.id == job_id for j in jobs):
-                observed["no_data_reason"] = (
+                observed.no_data_reason = (
                     f"job {job_id!r} exists but has no checkpoints recorded; don't retry it"
                 )
             else:
-                observed["no_data_reason"] = (
+                observed.no_data_reason = (
                     f"no job {job_id!r}; known jobs (pass the id): {_describe_refs(jobs)}"
                 )
         else:
             severity = "critical" if critical else ("warn" if view.counts.failed >= 1 else "ok")
-        signal = Signal(
-            tool="flink.checkpoint_failure",
-            signal_type="checkpoint_failure",
+        signal = CheckpointFailureSignal(
             collected_at=now,
             window_start=now,
             window_end=now,
-            scope={"job_id": job_id},
+            scope=JobScope(job_id=job_id),
             observed=observed,
             severity=severity,
             raw_source_ref=f"flink:/jobs/{job_id}/checkpoints",
@@ -125,23 +139,21 @@ def build_flink_tools(
         now = datetime.now(UTC)
         view = gateway.backpressure(job_id, vertex_id)
         level = view.backpressure_level.lower()
-        observed = {
-            "status": view.status,
-            "backpressure_level": view.backpressure_level,
-            "subtasks": [s.model_dump() for s in view.subtasks],
-        }
+        observed = BackpressureRatioObserved(
+            status=view.status,
+            backpressure_level=view.backpressure_level,
+            subtasks=view.subtasks,
+        )
         if not view.subtasks:
             severity: Severity = "unknown"
-            observed.update(_no_vertex_data(job_id, vertex_id, "backpressure samples"))
+            _set_no_vertex_data(observed, job_id, vertex_id, "backpressure samples")
         else:
             severity = "critical" if level == "high" else ("warn" if level == "low" else "ok")
-        signal = Signal(
-            tool="flink.backpressure_ratio",
-            signal_type="backpressure_ratio",
+        signal = BackpressureRatioSignal(
             collected_at=now,
             window_start=now,
             window_end=now,
-            scope={"job_id": job_id, "vertex_id": vertex_id},
+            scope=JobVertexScope(job_id=job_id, vertex_id=vertex_id),
             observed=observed,
             severity=severity,
             raw_source_ref=f"flink:/jobs/{job_id}/vertices/{vertex_id}/backpressure",
@@ -156,24 +168,22 @@ def build_flink_tools(
         now = datetime.now(UTC)
         lag_by_subtask = gateway.watermark_lag(job_id, vertex_id)
         max_lag_ms = max(lag_by_subtask.values(), default=0.0)
-        observed = {
-            "lag_ms_by_subtask": {str(k): v for k, v in lag_by_subtask.items()},
-            "max_lag_ms": max_lag_ms,
-        }
+        observed = WatermarkLagObserved(
+            lag_ms_by_subtask={str(k): v for k, v in lag_by_subtask.items()},
+            max_lag_ms=max_lag_ms,
+        )
         if not lag_by_subtask:
             severity: Severity = "unknown"
-            observed.update(_no_vertex_data(job_id, vertex_id, "watermark metrics"))
+            _set_no_vertex_data(observed, job_id, vertex_id, "watermark metrics")
         else:
             severity = (
                 "critical" if max_lag_ms > 60_000 else ("warn" if max_lag_ms > 10_000 else "ok")
             )
-        signal = Signal(
-            tool="flink.watermark_lag",
-            signal_type="watermark_lag",
+        signal = WatermarkLagSignal(
             collected_at=now,
             window_start=now,
             window_end=now,
-            scope={"job_id": job_id, "vertex_id": vertex_id},
+            scope=JobVertexScope(job_id=job_id, vertex_id=vertex_id),
             observed=observed,
             severity=severity,
             raw_source_ref=f"flink:/jobs/{job_id}/vertices/{vertex_id}/metrics (currentInputWatermark)",
@@ -188,23 +198,21 @@ def build_flink_tools(
         now = datetime.now(UTC)
         metrics = gateway.task_manager_disk_metrics(job_id, vertex_id)
         disk_used_ratio = metrics.get("disk_used_ratio")
-        observed = {"metrics": metrics}
+        observed = StateBackendDiskPressureObserved(metrics=metrics)
         if disk_used_ratio is None:
             severity: Severity = "unknown"
-            observed.update(_no_vertex_data(job_id, vertex_id, "disk_used_ratio metric"))
+            _set_no_vertex_data(observed, job_id, vertex_id, "disk_used_ratio metric")
         elif disk_used_ratio > 0.9:
             severity = "critical"
         elif disk_used_ratio > 0.7:
             severity = "warn"
         else:
             severity = "ok"
-        signal = Signal(
-            tool="flink.state_backend_disk_pressure",
-            signal_type="state_backend_disk_pressure",
+        signal = StateBackendDiskPressureSignal(
             collected_at=now,
             window_start=now,
             window_end=now,
-            scope={"job_id": job_id, "vertex_id": vertex_id},
+            scope=JobVertexScope(job_id=job_id, vertex_id=vertex_id),
             observed=observed,
             severity=severity,
             raw_source_ref=f"flink:/jobs/{job_id}/vertices/{vertex_id}/metrics (disk/rocksdb)",
@@ -224,14 +232,14 @@ def build_flink_tools(
             for e in exceptions
             if any(kw in str(e.get("exception", "")).lower() for kw in _SAVEPOINT_FAILURE_KEYWORDS)
         ]
-        signal = Signal(
-            tool="flink.savepoint_restore_failure",
-            signal_type="savepoint_restore_failure",
+        signal = SavepointRestoreFailureSignal(
             collected_at=now,
             window_start=now - timedelta(minutes=window_minutes),
             window_end=now,
-            scope={"job_id": job_id},
-            observed={"matching_exceptions": matches, "total_exceptions": len(exceptions)},
+            scope=JobScope(job_id=job_id),
+            observed=SavepointRestoreFailureObserved(
+                matching_exceptions=matches, total_exceptions=len(exceptions)
+            ),
             severity="critical" if matches else "ok",
             raw_source_ref=f"flink:/jobs/{job_id}/exceptions",
         )

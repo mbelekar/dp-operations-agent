@@ -25,12 +25,16 @@ def test_output_unchanged_without_job_name():
     explicit_none = _augment_alert_text("alert", "orders", "group", "a1b2c3", "v1", None)
 
     assert "job name" not in without
-    assert without == explicit_none == (
-        "alert\n\nKnown identifiers for this incident:\n"
-        "- Kafka topics: orders\n"
-        "- Kafka consumer group: group\n"
-        "- Flink job_id: a1b2c3\n"
-        "- Flink vertex_id: v1"
+    assert (
+        without
+        == explicit_none
+        == (
+            "alert\n\nKnown identifiers for this incident:\n"
+            "- Kafka topics: orders\n"
+            "- Kafka consumer group: group\n"
+            "- Flink job_id: a1b2c3\n"
+            "- Flink vertex_id: v1"
+        )
     )
 
 
@@ -44,11 +48,16 @@ def test_fixture_mode_requires_a_dbt_fixture(tmp_path):
         app,
         [
             "diagnose",
-            "--fixture", str(fixtures / "kafka" / "healthy_baseline.json"),
-            "--flink-fixture", str(fixtures / "flink" / "healthy_baseline.json"),
-            "--lineage-fixture", str(fixtures / "lineage" / "empty.json"),
-            "--alert-text", "alert",
-            "--log-dir", str(tmp_path),
+            "--fixture",
+            str(fixtures / "kafka" / "healthy_baseline.json"),
+            "--flink-fixture",
+            str(fixtures / "flink" / "healthy_baseline.json"),
+            "--lineage-fixture",
+            str(fixtures / "lineage" / "empty.json"),
+            "--alert-text",
+            "alert",
+            "--log-dir",
+            str(tmp_path),
         ],
     )
 
@@ -60,12 +69,18 @@ def _fixture_args(tmp_path):
     fixtures = Path(__file__).resolve().parents[1] / "fixtures"
     return [
         "diagnose",
-        "--fixture", str(fixtures / "kafka" / "healthy_baseline.json"),
-        "--flink-fixture", str(fixtures / "flink" / "healthy_baseline.json"),
-        "--lineage-fixture", str(fixtures / "lineage" / "empty.json"),
-        "--dbt-fixture", str(fixtures / "dbt" / "healthy_baseline.json"),
-        "--alert-text", "alert",
-        "--log-dir", str(tmp_path),
+        "--fixture",
+        str(fixtures / "kafka" / "healthy_baseline.json"),
+        "--flink-fixture",
+        str(fixtures / "flink" / "healthy_baseline.json"),
+        "--lineage-fixture",
+        str(fixtures / "lineage" / "empty.json"),
+        "--dbt-fixture",
+        str(fixtures / "dbt" / "healthy_baseline.json"),
+        "--alert-text",
+        "alert",
+        "--log-dir",
+        str(tmp_path),
     ]
 
 
@@ -79,21 +94,34 @@ def _stub_run(monkeypatch, proposal_input):
 
     now = datetime.now(UTC)
     signal = Signal(
-        tool="flink.checkpoint_failure", signal_type="checkpoint_failure", collected_at=now,
-        window_start=now, window_end=now, scope={"job_id": "orders-processing-job"},
-        observed={}, severity="critical",
+        tool="flink.checkpoint_failure",
+        signal_type="checkpoint_failure",
+        collected_at=now,
+        window_start=now,
+        window_end=now,
+        scope={"job_id": "orders-processing-job"},
+        observed={},
+        severity="critical",
     )
     proposal = _build_proposal(proposal_input)
     diagnosis = Diagnosis(
-        session_id="s", system="flink", root_cause_hypothesis="checkpoints failing",
-        root_cause_signal_id=signal.signal_id, confidence="high",
+        session_id="s",
+        system="flink",
+        root_cause_hypothesis="checkpoints failing",
+        root_cause_signal_id=signal.signal_id,
+        confidence="high",
         evidence_chain=[EvidenceChainEntry(step=1, signal_id=signal.signal_id, interpretation="x")],
-        signals=[signal], tier=proposal.tier if proposal else 0, proposal=proposal,
-        created_at=now, model="m",
+        signals=[signal],
+        tier=proposal.tier if proposal else 0,
+        proposal=proposal,
+        created_at=now,
+        model="m",
     )
 
     async def fake_run_diagnosis(**kwargs):
-        return DiagnosisRunResult(diagnosis=diagnosis, session_id="s", audit_log_path=None, usage=TokenUsage())
+        return DiagnosisRunResult(
+            diagnosis=diagnosis, session_id="s", audit_log_path=None, usage=TokenUsage()
+        )
 
     monkeypatch.setattr(cli, "run_diagnosis", fake_run_diagnosis)
 
@@ -104,7 +132,10 @@ def test_diagnose_prints_the_proposal_for_review(tmp_path, monkeypatch):
     _stub_run(
         monkeypatch,
         _ProposalInput(
-            action={"action_type": "restart_flink_job_from_checkpoint", "job_id": "orders-processing-job"},
+            action={
+                "action_type": "restart_flink_job_from_checkpoint",
+                "job_id": "orders-processing-job",
+            },
             expected_outcome="checkpoints complete again",
         ),
     )

@@ -59,9 +59,11 @@ def _live() -> LiveKafkaGateway:
     gateway._admin = _FakeAdmin()
     gateway._http = httpx.Client(
         transport=httpx.MockTransport(
-            lambda request: httpx.Response(200, json=["orders-value", "orders-sink-value"])
-            if request.url.path == "/subjects"
-            else httpx.Response(404)
+            lambda request: (
+                httpx.Response(200, json=["orders-value", "orders-sink-value"])
+                if request.url.path == "/subjects"
+                else httpx.Response(404)
+            )
         )
     )
     return gateway

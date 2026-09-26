@@ -141,8 +141,17 @@ async def test_vertex_that_exists_without_the_metric_says_not_to_retry(tmp_path)
     fixture = tmp_path / "no_watermark.json"
     fixture.write_text(
         json.dumps(
-            {"backpressure": {"job": {"source": {"status": "ok", "backpressure_level": "ok",
-                                                  "subtasks": [{"subtask": 0, "ratio": 0.0}]}}}}
+            {
+                "backpressure": {
+                    "job": {
+                        "source": {
+                            "status": "ok",
+                            "backpressure_level": "ok",
+                            "subtasks": [{"subtask": 0, "ratio": 0.0}],
+                        }
+                    }
+                }
+            }
         )
     )
     tools = {

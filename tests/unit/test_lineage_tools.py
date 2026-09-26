@@ -32,9 +32,7 @@ async def test_walk_lineage_upstream_finds_kafka_topic(tmp_path):
 
     assert signal.severity == "ok"
     assert signal.signal_type == "lineage_upstream"
-    assert signal.observed["upstream_nodes"] == [
-        {"id": "dataset:kafka:orders", "type": "DATASET"}
-    ]
+    assert signal.observed["upstream_nodes"] == [{"id": "dataset:kafka:orders", "type": "DATASET"}]
     assert collected == [signal]
 
 

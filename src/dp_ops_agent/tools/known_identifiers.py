@@ -20,7 +20,7 @@ def capped(items: list[T]) -> list[T]:
 
 
 def describe(names: list[str]) -> str:
-    """"a, b, c (+4 more)", or "none" for an empty list."""
+    """ "a, b, c (+4 more)", or "none" for an empty list."""
     if not names:
         return "none"
     shown = ", ".join(names[:MAX_LISTED])

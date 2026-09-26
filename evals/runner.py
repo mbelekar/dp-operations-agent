@@ -105,20 +105,14 @@ def select_scenarios(names: list[str] | None) -> list[EvalScenario]:
     by_name = {s.name: s for s in SCENARIOS}
     unknown = [n for n in names if n not in by_name]
     if unknown:
-        raise ValueError(
-            f"unknown scenario(s) {unknown}; valid names: {', '.join(by_name)}"
-        )
+        raise ValueError(f"unknown scenario(s) {unknown}; valid names: {', '.join(by_name)}")
     return [by_name[n] for n in names]
 
 
 async def run_all(
     scenarios: list[EvalScenario], model: str, repeat: int = 1
 ) -> list[EvalRunResult]:
-    return [
-        await run_scenario(scenario, model)
-        for scenario in scenarios
-        for _ in range(repeat)
-    ]
+    return [await run_scenario(scenario, model) for scenario in scenarios for _ in range(repeat)]
 
 
 def print_report(results: list[EvalRunResult], repeat: int = 1) -> bool:
@@ -144,9 +138,7 @@ def print_report(results: list[EvalRunResult], repeat: int = 1) -> bool:
             for field in TokenUsage.model_fields:
                 setattr(usage, field, getattr(usage, field) + getattr(r.usage, field))
                 setattr(total, field, getattr(total, field) + getattr(r.usage, field))
-        print(
-            f"{name:<{width}}  {passed}/{len(runs):<4}  {seconds:6.1f}s  {_tokens(usage)}"
-        )
+        print(f"{name:<{width}}  {passed}/{len(runs):<4}  {seconds:6.1f}s  {_tokens(usage)}")
         for r in runs:
             if not r.grade.passed:
                 print(f"{'':<{width}}    FAIL: {r.grade.reason}")

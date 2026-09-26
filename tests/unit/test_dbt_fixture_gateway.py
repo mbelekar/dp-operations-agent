@@ -9,7 +9,9 @@ SNAPSHOT = {
     "current": {
         "run_results": {
             "invocation": "build",
-            "results": {"model.shop.stg_orders": {"unique_id": "model.shop.stg_orders", "status": "success"}},
+            "results": {
+                "model.shop.stg_orders": {"unique_id": "model.shop.stg_orders", "status": "success"}
+            },
         },
         "manifest": {
             "nodes": {

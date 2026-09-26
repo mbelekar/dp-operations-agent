@@ -38,9 +38,7 @@ def _wait_for_running_job(timeout_seconds: int = 60) -> str:
         except URLError:
             pass
         time.sleep(2)
-    raise SystemExit(
-        f"No RUNNING Flink job found at {FLINK_REST_URL} within {timeout_seconds}s"
-    )
+    raise SystemExit(f"No RUNNING Flink job found at {FLINK_REST_URL} within {timeout_seconds}s")
 
 
 def main() -> None:

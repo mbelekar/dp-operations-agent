@@ -66,10 +66,7 @@ def _dbt_rerun(action: RerunDbtModel) -> RenderedAction:
 
 
 def _kafka_replay(action: ReplayKafkaOffsets) -> RenderedAction:
-    base = (
-        "kafka-consumer-groups --bootstrap-server <bootstrap-servers> "
-        f"--group {action.group}"
-    )
+    base = f"kafka-consumer-groups --bootstrap-server <bootstrap-servers> --group {action.group}"
     scope = f"--topic {action.topic}:{action.partition}"
     return RenderedAction(
         command=(

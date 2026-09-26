@@ -29,9 +29,7 @@ from confluent_kafka.admin import AdminClient
 
 from dp_ops_agent.tools.kafka.gateway import ClusterMetadataView, MetricSample, PartitionMetadata
 
-_PROMETHEUS_LINE_RE = re.compile(
-    r'^(?P<name>\w+)\{(?P<labels>[^}]*)\}\s+(?P<value>[-\d.eE+]+)\s*$'
-)
+_PROMETHEUS_LINE_RE = re.compile(r"^(?P<name>\w+)\{(?P<labels>[^}]*)\}\s+(?P<value>[-\d.eE+]+)\s*$")
 
 
 class LiveKafkaGateway:
@@ -171,9 +169,7 @@ class LiveKafkaGateway:
         finally:
             consumer.close()
 
-    def consumer_group_state_history(
-        self, group: str, window_minutes: int
-    ) -> list[dict[str, Any]]:
+    def consumer_group_state_history(self, group: str, window_minutes: int) -> list[dict[str, Any]]:
         desc = self._admin.describe_consumer_groups([group])
         result = desc[group].result(timeout=10.0)
         return [{"ts": datetime.now(UTC).isoformat(), "state": str(result.state)}]

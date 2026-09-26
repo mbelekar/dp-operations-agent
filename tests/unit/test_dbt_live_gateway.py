@@ -184,18 +184,22 @@ def test_rows_affected_is_read_when_the_adapter_reports_it(tmp_path):
         which="run",
     )
 
-    result = _gateway(tmp_path, run_results=run_results).run_results("current").results[
-        "model.shop.fct_orders"
-    ]
+    result = (
+        _gateway(tmp_path, run_results=run_results)
+        .run_results("current")
+        .results["model.shop.fct_orders"]
+    )
 
     assert (result.adapter_code, result.rows_affected) == ("INSERT", 10)
 
 
 def test_rows_affected_is_none_when_the_adapter_omits_it(tmp_path):
     # dbt-duckdb reports only {"_message": "OK"}.
-    result = _gateway(tmp_path, run_results=RUN_RESULTS).run_results("current").results[
-        "model.shop.stg_orders"
-    ]
+    result = (
+        _gateway(tmp_path, run_results=RUN_RESULTS)
+        .run_results("current")
+        .results["model.shop.stg_orders"]
+    )
 
     assert (result.adapter_code, result.rows_affected) == (None, None)
 
@@ -228,7 +232,11 @@ def test_manifest_merges_models_tests_and_sources(tmp_path):
     test = view.nodes["test.shop.not_null_stg_orders_order_id.81cfe2fe64"]
     assert test.attached_node == "model.shop.stg_orders"
     source = view.nodes["source.shop.raw.orders_sink"]
-    assert (source.resource_type, source.name, source.source_name) == ("source", "orders_sink", "raw")
+    assert (source.resource_type, source.name, source.source_name) == (
+        "source",
+        "orders_sink",
+        "raw",
+    )
     assert (source.schema_name, source.table_name) == ("raw", "orders_sink")
 
 
@@ -245,13 +253,20 @@ def test_source_freshness_results(tmp_path):
 def test_catalog_columns_for_nodes_and_sources(tmp_path):
     view = _gateway(tmp_path, catalog=CATALOG).catalog("current")
 
-    assert view.columns["model.shop.stg_orders"] == {"order_id": "BIGINT", "amount": "DECIMAL(21,1)"}
+    assert view.columns["model.shop.stg_orders"] == {
+        "order_id": "BIGINT",
+        "amount": "DECIMAL(21,1)",
+    }
     assert view.columns["source.shop.raw.orders_sink"]["currency"] == "VARCHAR"
 
 
 @pytest.mark.parametrize(
     ("method", "filename"),
-    [("run_results", "run_results.json"), ("manifest", "manifest.json"), ("source_freshness", "sources.json")],
+    [
+        ("run_results", "run_results.json"),
+        ("manifest", "manifest.json"),
+        ("source_freshness", "sources.json"),
+    ],
 )
 def test_missing_current_artifact_is_unavailable(tmp_path, method, filename):
     gateway = _gateway(tmp_path)

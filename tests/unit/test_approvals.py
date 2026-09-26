@@ -17,8 +17,12 @@ from dp_ops_agent.tools.diagnosis_output.tools import _build_proposal, _Proposal
 
 NOW = datetime(2026, 9, 25, 9, 0, tzinfo=UTC)
 _REPLAY = {
-    "action_type": "replay_kafka_offsets", "group": "billing-svc", "topic": "orders",
-    "partition": 1, "from_offset": 100, "to_offset": 500,
+    "action_type": "replay_kafka_offsets",
+    "group": "billing-svc",
+    "topic": "orders",
+    "partition": 1,
+    "from_offset": 100,
+    "to_offset": 500,
 }
 
 
@@ -26,9 +30,14 @@ def _write_proposal(audit_dir, session_id="s1", proposal: Proposal | None = None
     proposal = proposal or _build_proposal(_ProposalInput(action=_REPLAY, expected_outcome="x"))
     JsonlAuditSink(audit_dir, session_id).append(
         AuditEvent(
-            event_type="proposal_created", timestamp=NOW, session_id=session_id,
-            actor="orchestrator", diagnosis_id="d1", proposal_id=proposal.proposal_id,
-            tier=proposal.tier, payload=proposal.model_dump(mode="json"),
+            event_type="proposal_created",
+            timestamp=NOW,
+            session_id=session_id,
+            actor="orchestrator",
+            diagnosis_id="d1",
+            proposal_id=proposal.proposal_id,
+            tier=proposal.tier,
+            payload=proposal.model_dump(mode="json"),
         )
     )
     return proposal
@@ -139,7 +148,9 @@ def test_a_proposal_can_be_decided_only_once(tmp_path, first):
     record_decision(record, first, reviewer="alice", now=NOW)
 
     with pytest.raises(ValueError, match="already"):
-        record_decision(find_proposal(tmp_path, proposal.proposal_id), "approved", reviewer="bob", now=NOW)
+        record_decision(
+            find_proposal(tmp_path, proposal.proposal_id), "approved", reviewer="bob", now=NOW
+        )
 
 
 def test_an_expired_approval_can_be_approved_again(tmp_path):
@@ -147,6 +158,11 @@ def test_an_expired_approval_can_be_approved_again(tmp_path):
     later = NOW + timedelta(hours=2)
     record_decision(record, "expired", reviewer="system", now=later)
 
-    record_decision(find_proposal(tmp_path, record.proposal.proposal_id), "approved", reviewer="alice", now=later)
+    record_decision(
+        find_proposal(tmp_path, record.proposal.proposal_id),
+        "approved",
+        reviewer="alice",
+        now=later,
+    )
 
     assert check_usable(find_proposal(tmp_path, record.proposal.proposal_id), later).ok

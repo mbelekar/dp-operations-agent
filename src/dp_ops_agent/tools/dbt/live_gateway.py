@@ -45,9 +45,7 @@ class LiveDbtGateway:
         path = directory / filename if directory is not None else None
         if path is None or not path.is_file():
             if required and run == "current":
-                raise DbtArtifactsUnavailable(
-                    f"{filename} not found in dbt target dir {directory}"
-                )
+                raise DbtArtifactsUnavailable(f"{filename} not found in dbt target dir {directory}")
             return None
         return json.loads(path.read_text())
 

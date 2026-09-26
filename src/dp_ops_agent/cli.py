@@ -64,25 +64,23 @@ def _augment_alert_text(
         known.append(f"Flink vertex_id: {flink_vertex_id}")
     if not known:
         return alert_text
-    return alert_text + "\n\nKnown identifiers for this incident:\n" + "\n".join(
-        f"- {k}" for k in known
+    return (
+        alert_text
+        + "\n\nKnown identifiers for this incident:\n"
+        + "\n".join(f"- {k}" for k in known)
     )
 
 
 @app.command()
 def diagnose(
-    fixture: Path | None = typer.Option(
-        None, help="Path to a Kafka fixture snapshot JSON file"
-    ),
+    fixture: Path | None = typer.Option(None, help="Path to a Kafka fixture snapshot JSON file"),
     flink_fixture: Path | None = typer.Option(
         None, help="Path to a Flink fixture snapshot JSON file"
     ),
     lineage_fixture: Path | None = typer.Option(
         None, help="Path to a lineage fixture snapshot JSON file"
     ),
-    dbt_fixture: Path | None = typer.Option(
-        None, help="Path to a dbt fixture snapshot JSON file"
-    ),
+    dbt_fixture: Path | None = typer.Option(None, help="Path to a dbt fixture snapshot JSON file"),
     live: bool = typer.Option(
         False,
         "--live",
@@ -246,14 +244,23 @@ def _load_proposal(proposal_id: str, log_dir: str) -> ProposalRecord:
     return record
 
 
-def _decide(record: ProposalRecord, decision: str, reviewer: str, reason: str | None,
-            expires_in: timedelta = timedelta(hours=1)):
+def _decide(
+    record: ProposalRecord,
+    decision: str,
+    reviewer: str,
+    reason: str | None,
+    expires_in: timedelta = timedelta(hours=1),
+):
     # --reviewer is recorded as given: there is no authentication (ADR-0011).
     _echo_proposal(record.proposal)
     try:
         return record_decision(
-            record, decision, reviewer=reviewer, now=datetime.now(UTC),
-            reason=reason, expires_in=expires_in,
+            record,
+            decision,
+            reviewer=reviewer,
+            now=datetime.now(UTC),
+            reason=reason,
+            expires_in=expires_in,
         )
     except ValueError as exc:
         typer.echo(f"FAILED: {exc}", err=True)

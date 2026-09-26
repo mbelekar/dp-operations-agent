@@ -83,9 +83,7 @@ def _find_model(manifest: ManifestView, name: str) -> ManifestNode | None:
     )
 
 
-def _code_changed(
-    node: ManifestNode, state_manifest: ManifestView | None
-) -> bool | None:
+def _code_changed(node: ManifestNode, state_manifest: ManifestView | None) -> bool | None:
     if state_manifest is None:
         return None
     previous = state_manifest.nodes.get(node.unique_id)
@@ -227,9 +225,7 @@ def build_dbt_tools(
                 "not_run_tests": not_run,
                 "passing_tests": passing,
                 "all_failing_previously_passed": all_failing_previously_passed,
-                "artifacts_generated_at": _generated_at(
-                    run_results=run_results, manifest=manifest
-                ),
+                "artifacts_generated_at": _generated_at(run_results=run_results, manifest=manifest),
             },
             severity,
             "dbt:target/run_results.json + manifest.json (vs. state/)",
@@ -271,9 +267,7 @@ def build_dbt_tools(
                 "message": result.message if result is not None else None,
                 "previous_status": _status(gateway.run_results("state"), node.unique_id),
                 "model_code_changed": _code_changed(node, gateway.manifest("state")),
-                "artifacts_generated_at": _generated_at(
-                    run_results=run_results, manifest=manifest
-                ),
+                "artifacts_generated_at": _generated_at(run_results=run_results, manifest=manifest),
             },
             severity,
             "dbt:target/run_results.json + manifest.json (vs. state/)",
@@ -405,9 +399,7 @@ def build_dbt_tools(
                 "rows_affected_available": rows_available,
                 "comparable": comparable,
                 "ratio": ratio,
-                "artifacts_generated_at": _generated_at(
-                    run_results=run_results, manifest=manifest
-                ),
+                "artifacts_generated_at": _generated_at(run_results=run_results, manifest=manifest),
             },
             severity,
             "dbt:target/run_results.json adapter_response (vs. state/)",

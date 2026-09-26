@@ -15,20 +15,38 @@ _BY_NAME = {s.name: s for s in SCENARIOS}
 def _diagnosis(signal_type: str, tool: str, scope: dict, action: dict | None) -> Diagnosis:
     now = datetime.now(UTC)
     signal = Signal(
-        tool=tool, signal_type=signal_type, collected_at=now, window_start=now,
-        window_end=now, scope=scope, observed={}, severity="critical",
+        tool=tool,
+        signal_type=signal_type,
+        collected_at=now,
+        window_start=now,
+        window_end=now,
+        scope=scope,
+        observed={},
+        severity="critical",
     )
-    proposal = _build_proposal(_ProposalInput(action=action, expected_outcome="x")) if action else None
+    proposal = (
+        _build_proposal(_ProposalInput(action=action, expected_outcome="x")) if action else None
+    )
     return Diagnosis(
-        session_id="s", system=tool.split(".")[0], root_cause_hypothesis="h",
-        root_cause_signal_id=signal.signal_id, confidence="high",
+        session_id="s",
+        system=tool.split(".")[0],
+        root_cause_hypothesis="h",
+        root_cause_signal_id=signal.signal_id,
+        confidence="high",
         evidence_chain=[EvidenceChainEntry(step=1, signal_id=signal.signal_id, interpretation="x")],
-        signals=[signal], tier=proposal.tier if proposal else 0, proposal=proposal,
-        created_at=now, model="m",
+        signals=[signal],
+        tier=proposal.tier if proposal else 0,
+        proposal=proposal,
+        created_at=now,
+        model="m",
     )
 
 
-_CHECKPOINT = ("checkpoint_failure", "flink.checkpoint_failure", {"job_id": "orders-processing-job"})
+_CHECKPOINT = (
+    "checkpoint_failure",
+    "flink.checkpoint_failure",
+    {"job_id": "orders-processing-job"},
+)
 _MODEL_ERROR = ("model_run_failure", "dbt.model_run_failure", {"model": "fct_orders"})
 _RERUN = {"action_type": "rerun_dbt_model", "model": "fct_orders"}
 _ISR = ("isr_churn", "kafka.isr_churn", {"broker_id": "1", "group": "g", "topic": "orders"})
@@ -62,8 +80,12 @@ def test_tier0_expected_and_no_proposal_passes():
 
 def test_tier0_expected_but_an_action_proposed_fails():
     replay = {
-        "action_type": "replay_kafka_offsets", "group": "g", "topic": "orders",
-        "partition": 0, "from_offset": 0, "to_offset": 10,
+        "action_type": "replay_kafka_offsets",
+        "group": "g",
+        "topic": "orders",
+        "partition": 0,
+        "from_offset": 0,
+        "to_offset": 10,
     }
 
     result = grade(_diagnosis(*_ISR, replay), _BY_NAME["urp_lag_spike"])

@@ -219,7 +219,8 @@ def build_flink_tools(
         now = datetime.now(UTC)
         exceptions = gateway.job_exceptions(job_id, window_minutes)
         matches = [
-            e for e in exceptions
+            e
+            for e in exceptions
             if any(kw in str(e.get("exception", "")).lower() for kw in _SAVEPOINT_FAILURE_KEYWORDS)
         ]
         signal = Signal(

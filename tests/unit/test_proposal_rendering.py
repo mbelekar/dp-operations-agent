@@ -13,12 +13,13 @@ from dp_ops_agent.tools.diagnosis_output.proposals import render
 
 def test_flink_restart():
     rendered = render(
-        RestartFlinkJobFromCheckpoint(action_type="restart_flink_job_from_checkpoint", job_id="a1b2c3")
+        RestartFlinkJobFromCheckpoint(
+            action_type="restart_flink_job_from_checkpoint", job_id="a1b2c3"
+        )
     )
 
     assert rendered.command == (
-        "flink cancel a1b2c3\n"
-        "flink run -s <latest-completed-checkpoint-path> <job-jar>"
+        "flink cancel a1b2c3\nflink run -s <latest-completed-checkpoint-path> <job-jar>"
     )
     assert "checkpoint is not modified" in rendered.rollback_step
     assert any("<latest-completed-checkpoint-path>" in w for w in rendered.warnings)
@@ -38,8 +39,12 @@ def test_dbt_rerun():
 def test_kafka_replay_backs_up_offsets_first_and_rolls_back_from_the_file():
     rendered = render(
         ReplayKafkaOffsets(
-            action_type="replay_kafka_offsets", group="billing-svc", topic="orders",
-            partition=1, from_offset=100, to_offset=500,
+            action_type="replay_kafka_offsets",
+            group="billing-svc",
+            topic="orders",
+            partition=1,
+            from_offset=100,
+            to_offset=500,
         )
     )
 

@@ -138,9 +138,7 @@ def build_diagnosis_output_tools(
                 root_cause_hypothesis=root_cause_hypothesis,
                 root_cause_signal_id=root_cause_signal_id,
                 confidence=confidence,
-                evidence_chain=[
-                    EvidenceChainEntry(**e.model_dump()) for e in evidence_chain
-                ],
+                evidence_chain=[EvidenceChainEntry(**e.model_dump()) for e in evidence_chain],
                 signals=list(collected_signals),
                 tier=built_proposal.tier if built_proposal else 0,
                 proposal=built_proposal,

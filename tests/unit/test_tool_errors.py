@@ -34,7 +34,9 @@ async def _run_raising(middleware, exc: Exception):
 @pytest.mark.parametrize(
     "exc",
     [
-        httpx.RemoteProtocolError("Server disconnected without sending a response.", request=_REQUEST),
+        httpx.RemoteProtocolError(
+            "Server disconnected without sending a response.", request=_REQUEST
+        ),
         httpx.HTTPStatusError(
             "502 Bad Gateway", request=_REQUEST, response=httpx.Response(502, request=_REQUEST)
         ),

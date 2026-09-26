@@ -178,8 +178,8 @@ SCENARIOS: list[EvalScenario] = [
             "The counter-case to the dbt flagship: the failing test passed last "
             "run, but fct_orders' own code changed since, and everything "
             "upstream is healthy. The correct diagnosis cites the dbt "
-            "test_failure itself, catching an agent that has learned \"always "
-            "blame upstream\" instead of the actual rule."
+            'test_failure itself, catching an agent that has learned "always '
+            'blame upstream" instead of the actual rule.'
         ),
     ),
 ]

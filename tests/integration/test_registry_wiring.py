@@ -19,21 +19,12 @@ from dp_ops_agent.tools.registry import TOOL_NAMES, build_tools
 KAFKA_FIXTURE = (
     Path(__file__).resolve().parents[1] / "fixtures" / "kafka" / "urp_lag_spike_incident.json"
 )
-FLINK_FIXTURE = (
-    Path(__file__).resolve().parents[1] / "fixtures" / "flink" / "healthy_baseline.json"
-)
-LINEAGE_FIXTURE = (
-    Path(__file__).resolve().parents[1] / "fixtures" / "lineage" / "empty.json"
-)
-DBT_FIXTURE = (
-    Path(__file__).resolve().parents[1] / "fixtures" / "dbt" / "healthy_baseline.json"
-)
+FLINK_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "flink" / "healthy_baseline.json"
+LINEAGE_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "lineage" / "empty.json"
+DBT_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "dbt" / "healthy_baseline.json"
 
 FLAGSHIP_KAFKA_FIXTURE = (
-    Path(__file__).resolve().parents[1]
-    / "fixtures"
-    / "kafka"
-    / "isr_churn_upstream_incident.json"
+    Path(__file__).resolve().parents[1] / "fixtures" / "kafka" / "isr_churn_upstream_incident.json"
 )
 FLAGSHIP_FLINK_FIXTURE = (
     Path(__file__).resolve().parents[1]
@@ -44,10 +35,7 @@ FLAGSHIP_FLINK_FIXTURE = (
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
 FLAGSHIP_LINEAGE_FIXTURE = (
-    Path(__file__).resolve().parents[1]
-    / "fixtures"
-    / "lineage"
-    / "flink_job_to_kafka_topic.json"
+    Path(__file__).resolve().parents[1] / "fixtures" / "lineage" / "flink_job_to_kafka_topic.json"
 )
 
 
@@ -138,9 +126,7 @@ async def test_signal_from_kafka_tool_is_citable_in_submit_diagnosis(tmp_path):
 async def test_signal_from_flink_tool_is_citable_in_submit_diagnosis(tmp_path):
     tools, result_holder = _build_tools(tmp_path, "wiring-test-flink")
 
-    cp_result = await tools["checkpoint_failure"].ainvoke(
-        {"job_id": "orders-processing-job"}
-    )
+    cp_result = await tools["checkpoint_failure"].ainvoke({"job_id": "orders-processing-job"})
     signal_id = json.loads(cp_result)["signal_id"]
 
     submit_result = await tools["submit_diagnosis"].ainvoke(
@@ -168,9 +154,7 @@ async def test_submit_diagnosis_rejects_ungrounded_signal_id(tmp_path):
             "root_cause_hypothesis": "made up",
             "root_cause_signal_id": "never-collected",
             "confidence": "low",
-            "evidence_chain": [
-                {"step": 1, "signal_id": "never-collected", "interpretation": "x"}
-            ],
+            "evidence_chain": [{"step": 1, "signal_id": "never-collected", "interpretation": "x"}],
         }
     )
 
@@ -220,9 +204,7 @@ async def test_flagship_cross_system_fixture_evidence_is_retrievable_and_gradeab
     wl_signal_id = wl_result["signal_id"]
 
     lineage_result = json.loads(
-        await tools["walk_lineage_upstream"].ainvoke(
-            {"node_id": "job:flink:orders-processing-job"}
-        )
+        await tools["walk_lineage_upstream"].ainvoke({"node_id": "job:flink:orders-processing-job"})
     )
     assert lineage_result["observed"]["upstream_nodes"] == [
         {"id": "dataset:kafka:orders", "type": "DATASET"}
@@ -327,7 +309,9 @@ async def test_dbt_flagship_fixture_traces_three_hops_to_kafka(tmp_path):
     ]
 
     watermark = json.loads(
-        await tools["watermark_lag"].ainvoke({"job_id": "orders-processing-job", "vertex_id": "source"})
+        await tools["watermark_lag"].ainvoke(
+            {"job_id": "orders-processing-job", "vertex_id": "source"}
+        )
     )
     assert watermark["severity"] == "critical"
     isr = json.loads(await tools["isr_churn"].ainvoke({"broker_id": 1, "window_minutes": 10}))
@@ -383,8 +367,16 @@ async def test_dbt_model_logic_regression_fixture_roots_in_dbt(tmp_path):
             "root_cause_signal_id": tests["signal_id"],
             "confidence": "high",
             "evidence_chain": [
-                {"step": 1, "signal_id": tests["signal_id"], "interpretation": "test fails after code change"},
-                {"step": 2, "signal_id": freshness["signal_id"], "interpretation": "source is fresh"},
+                {
+                    "step": 1,
+                    "signal_id": tests["signal_id"],
+                    "interpretation": "test fails after code change",
+                },
+                {
+                    "step": 2,
+                    "signal_id": freshness["signal_id"],
+                    "interpretation": "source is fresh",
+                },
             ],
         }
     )
@@ -495,7 +487,10 @@ async def test_proposal_on_an_uninvestigated_target_rejects_the_submission(tmp_p
         _submit_args(
             signal_id,
             {
-                "action": {"action_type": "restart_flink_job_from_checkpoint", "job_id": "other-job"},
+                "action": {
+                    "action_type": "restart_flink_job_from_checkpoint",
+                    "job_id": "other-job",
+                },
                 "expected_outcome": "x",
             },
         )
@@ -503,7 +498,9 @@ async def test_proposal_on_an_uninvestigated_target_rejects_the_submission(tmp_p
 
     assert "rejected" in result and "other-job" in result
     assert "diagnosis" not in result_holder
-    assert JsonlAuditSink(tmp_path, "wiring-proposal-bad").query(event_type="proposal_created") == []
+    assert (
+        JsonlAuditSink(tmp_path, "wiring-proposal-bad").query(event_type="proposal_created") == []
+    )
 
 
 @pytest.mark.asyncio
@@ -527,7 +524,11 @@ def test_submit_diagnosis_tool_schema_has_no_dangling_refs(tmp_path):
     schema = json.dumps(convert_to_anthropic_tool(tools["submit_diagnosis"])["input_schema"])
 
     assert "#/$defs/" not in schema
-    for action_type in ("restart_flink_job_from_checkpoint", "rerun_dbt_model", "replay_kafka_offsets"):
+    for action_type in (
+        "restart_flink_job_from_checkpoint",
+        "rerun_dbt_model",
+        "replay_kafka_offsets",
+    ):
         assert action_type in schema
 
 
@@ -546,7 +547,9 @@ async def test_transient_dbt_failure_fixture_supports_a_rerun_proposal(tmp_path)
     assert run["observed"]["model_code_changed"] is False
     assert run["observed"]["previous_status"] == "success"
     assert "deadlock detected" in run["observed"]["message"]
-    freshness = json.loads(await tools["freshness_check_failure"].ainvoke({"source": "raw.orders_sink"}))
+    freshness = json.loads(
+        await tools["freshness_check_failure"].ainvoke({"source": "raw.orders_sink"})
+    )
     assert freshness["severity"] == "ok"
 
     result = await tools["submit_diagnosis"].ainvoke(
@@ -555,7 +558,11 @@ async def test_transient_dbt_failure_fixture_supports_a_rerun_proposal(tmp_path)
             "root_cause_signal_id": run["signal_id"],
             "confidence": "high",
             "evidence_chain": [
-                {"step": 1, "signal_id": run["signal_id"], "interpretation": "deadlock, code unchanged"},
+                {
+                    "step": 1,
+                    "signal_id": run["signal_id"],
+                    "interpretation": "deadlock, code unchanged",
+                },
                 {"step": 2, "signal_id": freshness["signal_id"], "interpretation": "inputs fresh"},
             ],
             "proposal": {
@@ -591,9 +598,7 @@ async def test_submit_diagnosis_propagates_a_bug_instead_of_rejecting(tmp_path, 
                 "root_cause_hypothesis": "stg_orders needs a re-run",
                 "root_cause_signal_id": signal_id,
                 "confidence": "low",
-                "evidence_chain": [
-                    {"step": 1, "signal_id": signal_id, "interpretation": "x"}
-                ],
+                "evidence_chain": [{"step": 1, "signal_id": signal_id, "interpretation": "x"}],
                 "proposal": {
                     "action": {"action_type": "rerun_dbt_model", "model": "stg_orders"},
                     "expected_outcome": "stg_orders rebuilds",
@@ -614,9 +619,7 @@ async def test_submit_diagnosis_rejects_unknown_root_cause_with_grounding_messag
             "root_cause_hypothesis": "made up",
             "root_cause_signal_id": "never-collected",
             "confidence": "low",
-            "evidence_chain": [
-                {"step": 1, "signal_id": signal_id, "interpretation": "x"}
-            ],
+            "evidence_chain": [{"step": 1, "signal_id": signal_id, "interpretation": "x"}],
         }
     )
 

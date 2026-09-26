@@ -126,9 +126,7 @@ async def test_backend_error_is_reported_to_model_and_diagnosis_completes(tmp_pa
 
     assert result.diagnosis.confidence == "low"
     skew_results = [
-        m
-        for m in _SEEN[-1]
-        if isinstance(m, ToolMessage) and m.name == "hot_partition_skew"
+        m for m in _SEEN[-1] if isinstance(m, ToolMessage) and m.name == "hot_partition_skew"
     ]
     assert len(skew_results) == 1
     assert skew_results[0].status == "error"

@@ -63,7 +63,11 @@ def test_isr_churn_description_says_where_broker_ids_come_from(tmp_path):
 def test_session_prompt_states_the_proposal_rules():
     prompt = render_system_prompt(phase=3)
 
-    for action_type in ("restart_flink_job_from_checkpoint", "rerun_dbt_model", "replay_kafka_offsets"):
+    for action_type in (
+        "restart_flink_job_from_checkpoint",
+        "rerun_dbt_model",
+        "replay_kafka_offsets",
+    ):
         assert action_type in prompt
     assert "Tier 0" in prompt
     assert "collected a signal about" in prompt

@@ -171,7 +171,11 @@ from dp_ops_agent.evidence.schema import (  # noqa: E402
     RestartFlinkJobFromCheckpoint,
 )
 
-_FLINK = dict(tool="flink.checkpoint_failure", signal_type="checkpoint_failure", scope={"job_id": "orders-job"})
+_FLINK = dict(
+    tool="flink.checkpoint_failure",
+    signal_type="checkpoint_failure",
+    scope={"job_id": "orders-job"},
+)
 _DBT = dict(tool="dbt.test_failure", signal_type="test_failure", scope={"model": "fct_orders"})
 _KAFKA_LAG = dict(
     tool="kafka.consumer_lag_trend",
@@ -201,13 +205,22 @@ def _with_proposal(root_fields: dict, action, tier: int = 1, extra_signals=()) -
 @pytest.mark.parametrize(
     ("root", "action"),
     [
-        (_FLINK, RestartFlinkJobFromCheckpoint(action_type="restart_flink_job_from_checkpoint", job_id="orders-job")),
+        (
+            _FLINK,
+            RestartFlinkJobFromCheckpoint(
+                action_type="restart_flink_job_from_checkpoint", job_id="orders-job"
+            ),
+        ),
         (_DBT, RerunDbtModel(action_type="rerun_dbt_model", model="fct_orders")),
         (
             _KAFKA_LAG,
             ReplayKafkaOffsets(
-                action_type="replay_kafka_offsets", group="billing-svc", topic="orders",
-                partition=7, from_offset=1000, to_offset=5000,
+                action_type="replay_kafka_offsets",
+                group="billing-svc",
+                topic="orders",
+                partition=7,
+                from_offset=1000,
+                to_offset=5000,
             ),
         ),
     ],
@@ -224,13 +237,23 @@ def test_grounded_tier1_action_matching_the_root_system_is_accepted(root, action
     ("root", "action", "match"),
     [
         # The job/model/group was never investigated this session.
-        (_FLINK, RestartFlinkJobFromCheckpoint(action_type="restart_flink_job_from_checkpoint", job_id="other-job"), "other-job"),
+        (
+            _FLINK,
+            RestartFlinkJobFromCheckpoint(
+                action_type="restart_flink_job_from_checkpoint", job_id="other-job"
+            ),
+            "other-job",
+        ),
         (_DBT, RerunDbtModel(action_type="rerun_dbt_model", model="stg_orders"), "stg_orders"),
         (
             _KAFKA_LAG,
             ReplayKafkaOffsets(
-                action_type="replay_kafka_offsets", group="billing-svc", topic="payments",
-                partition=0, from_offset=0, to_offset=10,
+                action_type="replay_kafka_offsets",
+                group="billing-svc",
+                topic="payments",
+                partition=0,
+                from_offset=0,
+                to_offset=10,
             ),
             "payments",
         ),
@@ -253,16 +276,24 @@ def test_action_for_a_different_system_than_the_root_cause_is_rejected():
 def test_replay_wider_than_tier1_is_rejected_not_escalated():
     with pytest.raises(ValidationError, match="Tier 2"):
         ReplayKafkaOffsets(
-            action_type="replay_kafka_offsets", group="g", topic="t", partition=0,
-            from_offset=0, to_offset=MAX_TIER1_REPLAY_OFFSETS + 1,
+            action_type="replay_kafka_offsets",
+            group="g",
+            topic="t",
+            partition=0,
+            from_offset=0,
+            to_offset=MAX_TIER1_REPLAY_OFFSETS + 1,
         )
 
 
 def test_replay_range_must_move_forward():
     with pytest.raises(ValidationError, match="to_offset"):
         ReplayKafkaOffsets(
-            action_type="replay_kafka_offsets", group="g", topic="t", partition=0,
-            from_offset=500, to_offset=500,
+            action_type="replay_kafka_offsets",
+            group="g",
+            topic="t",
+            partition=0,
+            from_offset=500,
+            to_offset=500,
         )
 
 

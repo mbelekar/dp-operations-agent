@@ -50,7 +50,17 @@ class FixtureFlinkGateway:
 
     def checkpoint_history(self, job_id: str) -> CheckpointHistoryView:
         raw = self._data.get("checkpoint_history", {}).get(
-            job_id, {"counts": {"completed": 0, "failed": 0, "in_progress": 0, "restored": 0, "total": 0}, "history": []}
+            job_id,
+            {
+                "counts": {
+                    "completed": 0,
+                    "failed": 0,
+                    "in_progress": 0,
+                    "restored": 0,
+                    "total": 0,
+                },
+                "history": [],
+            },
         )
         return CheckpointHistoryView(
             counts=CheckpointCounts(**raw["counts"]),
@@ -58,8 +68,12 @@ class FixtureFlinkGateway:
         )
 
     def backpressure(self, job_id: str, vertex_id: str) -> BackpressureView:
-        raw = self._data.get("backpressure", {}).get(job_id, {}).get(
-            vertex_id, {"status": "not_found", "backpressure_level": "unknown", "subtasks": []}
+        raw = (
+            self._data.get("backpressure", {})
+            .get(job_id, {})
+            .get(
+                vertex_id, {"status": "not_found", "backpressure_level": "unknown", "subtasks": []}
+            )
         )
         return BackpressureView(**raw)
 

@@ -18,7 +18,9 @@ from dp_ops_agent.tools.flink.fixture_gateway import FixtureFlinkGateway
 from dp_ops_agent.tools.kafka.fixture_gateway import FixtureKafkaGateway
 from dp_ops_agent.tools.lineage.fixture_gateway import FixtureLineageGateway
 
-KAFKA_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "kafka" / "urp_lag_spike_incident.json"
+KAFKA_FIXTURE = (
+    Path(__file__).resolve().parents[1] / "fixtures" / "kafka" / "urp_lag_spike_incident.json"
+)
 FLINK_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "flink" / "healthy_baseline.json"
 LINEAGE_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "lineage" / "empty.json"
 DBT_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "dbt" / "healthy_baseline.json"

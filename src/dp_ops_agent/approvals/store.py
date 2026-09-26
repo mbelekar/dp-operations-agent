@@ -60,9 +60,15 @@ def action_digest(action: ProposedAction) -> str:
 
 def find_proposal(audit_dir: str | Path, proposal_id: str) -> ProposalRecord | None:
     for path in sorted(Path(audit_dir).glob("*.jsonl")):
-        events = [AuditEvent.model_validate_json(line) for line in path.read_text().splitlines() if line]
+        events = [
+            AuditEvent.model_validate_json(line) for line in path.read_text().splitlines() if line
+        ]
         created = next(
-            (e for e in events if e.event_type == "proposal_created" and e.proposal_id == proposal_id),
+            (
+                e
+                for e in events
+                if e.event_type == "proposal_created" and e.proposal_id == proposal_id
+            ),
             None,
         )
         if created is None:
@@ -161,12 +167,18 @@ def check_usable(record: ProposalRecord, now: datetime) -> Usability:
     if latest is None:
         return Usability(False, "not approved: run `dp-ops-agent approve` first")
     if latest.decision == "rejected":
-        return Usability(False, f"rejected by {latest.reviewer}: {latest.reasoning or 'no reason given'}")
+        return Usability(
+            False, f"rejected by {latest.reviewer}: {latest.reasoning or 'no reason given'}"
+        )
     if latest.decision == "expired":
         return Usability(False, "the approval expired; approve it again to execute")
     if latest.expires_at is not None and now > latest.expires_at:
         return Usability(
-            False, f"the approval expired at {latest.expires_at.isoformat()}", latest, action, expired=True
+            False,
+            f"the approval expired at {latest.expires_at.isoformat()}",
+            latest,
+            action,
+            expired=True,
         )
     if any(e.get("outcome") in _CONSUMING_OUTCOMES for e in record.executions):
         return Usability(False, "already executed: an approval can be used once")

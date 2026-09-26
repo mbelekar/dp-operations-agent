@@ -27,7 +27,11 @@ _JOB = {
     "name": "orders-processing-job",
     "vertices": [
         {"id": "cbc357ccb763df2852fee8c4fc7d55f2", "name": "Source: orders", "parallelism": 1},
-        {"id": "90bea66de1c231edf33913ecd54406c1", "name": "Map -> Sink: orders-sink", "parallelism": 1},
+        {
+            "id": "90bea66de1c231edf33913ecd54406c1",
+            "name": "Map -> Sink: orders-sink",
+            "parallelism": 1,
+        },
     ],
 }
 

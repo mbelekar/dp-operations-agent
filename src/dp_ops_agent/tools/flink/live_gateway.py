@@ -74,9 +74,7 @@ class LiveFlinkGateway:
         )
 
     def backpressure(self, job_id: str, vertex_id: str) -> BackpressureView:
-        resp = self._http.get(
-            f"{self._base_url}/jobs/{job_id}/vertices/{vertex_id}/backpressure"
-        )
+        resp = self._http.get(f"{self._base_url}/jobs/{job_id}/vertices/{vertex_id}/backpressure")
         resp.raise_for_status()
         data = resp.json()
         subtasks = [
@@ -90,15 +88,14 @@ class LiveFlinkGateway:
         )
 
     def _available_metric_ids(self, job_id: str, vertex_id: str) -> list[str]:
-        resp = self._http.get(
-            f"{self._base_url}/jobs/{job_id}/vertices/{vertex_id}/metrics"
-        )
+        resp = self._http.get(f"{self._base_url}/jobs/{job_id}/vertices/{vertex_id}/metrics")
         resp.raise_for_status()
         return [m["id"] for m in resp.json()]
 
     def watermark_lag(self, job_id: str, vertex_id: str) -> dict[int, float]:
         metric_ids = [
-            m for m in self._available_metric_ids(job_id, vertex_id)
+            m
+            for m in self._available_metric_ids(job_id, vertex_id)
             if m.endswith("currentInputWatermark")
         ]
         if not metric_ids:
@@ -122,7 +119,8 @@ class LiveFlinkGateway:
 
     def task_manager_disk_metrics(self, job_id: str, vertex_id: str) -> dict[str, float]:
         metric_ids = [
-            m for m in self._available_metric_ids(job_id, vertex_id)
+            m
+            for m in self._available_metric_ids(job_id, vertex_id)
             if "disk" in m.lower() or "rocksdb" in m.lower()
         ]
         if not metric_ids:
@@ -141,6 +139,5 @@ class LiveFlinkGateway:
         now_ms = time.time() * 1000
         cutoff_ms = now_ms - (window_minutes * 60 * 1000)
         return [
-            e for e in data.get("all-exceptions", [])
-            if e.get("timestamp", now_ms) >= cutoff_ms
+            e for e in data.get("all-exceptions", []) if e.get("timestamp", now_ms) >= cutoff_ms
         ]

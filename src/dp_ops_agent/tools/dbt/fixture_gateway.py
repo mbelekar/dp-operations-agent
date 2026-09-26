@@ -40,9 +40,7 @@ class FixtureDbtGateway:
     def __init__(self, snapshot_path: str | Path) -> None:
         self._data: dict[str, Any] = json.loads(Path(snapshot_path).read_text())
 
-    def _view(
-        self, run: ArtifactRun, key: str, view: type[V], required: bool = True
-    ) -> V | None:
+    def _view(self, run: ArtifactRun, key: str, view: type[V], required: bool = True) -> V | None:
         raw = self._data.get(run, {}).get(key)
         if raw is None:
             if required and run == "current":

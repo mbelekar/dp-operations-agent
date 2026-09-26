@@ -55,8 +55,7 @@ class FixtureKafkaGateway:
         by_broker: dict[str, Any] = self._data.get("broker_jmx_metrics", {})
         broker_metrics = by_broker.get(str(broker_id), {})
         return {
-            name: [MetricSample(**s) for s in broker_metrics.get(name, [])]
-            for name in metric_names
+            name: [MetricSample(**s) for s in broker_metrics.get(name, [])] for name in metric_names
         }
 
     def consumer_group_offsets(self, group: str) -> dict[int, int]:
@@ -67,9 +66,7 @@ class FixtureKafkaGateway:
         raw = self._data.get("topic_high_watermarks", {}).get(topic, {})
         return {int(k): v for k, v in raw.items()}
 
-    def consumer_group_state_history(
-        self, group: str, window_minutes: int
-    ) -> list[dict[str, Any]]:
+    def consumer_group_state_history(self, group: str, window_minutes: int) -> list[dict[str, Any]]:
         return self._data.get("consumer_group_state_history", {}).get(group, [])
 
     def partition_throughput(self, topic: str, window_minutes: int) -> dict[int, float]:

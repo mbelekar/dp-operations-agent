@@ -113,10 +113,16 @@ async def test_failure_that_passed_last_run_with_unchanged_code_points_upstream(
         current={
             "manifest": _manifest(stg_checksum="aaa"),
             "run_results": _rr(
-                {NOT_NULL: {"status": "fail", "failures": 10, "message": "Got 10 results"}, UNIQUE: "pass"}
+                {
+                    NOT_NULL: {"status": "fail", "failures": 10, "message": "Got 10 results"},
+                    UNIQUE: "pass",
+                }
             ),
         },
-        state={"manifest": _manifest(stg_checksum="aaa"), "run_results": _rr({NOT_NULL: "pass", UNIQUE: "pass"})},
+        state={
+            "manifest": _manifest(stg_checksum="aaa"),
+            "run_results": _rr({NOT_NULL: "pass", UNIQUE: "pass"}),
+        },
     )
 
     signal = await _signal(tools, "test_failure", {"model": "stg_orders"})
@@ -169,7 +175,10 @@ async def test_failure_with_no_previous_run_reports_unknown_not_false(tmp_path):
 async def test_skipped_tests_are_listed_separately_and_are_not_failures(tmp_path):
     tools, _ = _build_tools(
         tmp_path,
-        current={"manifest": _manifest(), "run_results": _rr({NOT_NULL: "skipped", UNIQUE: "pass"})},
+        current={
+            "manifest": _manifest(),
+            "run_results": _rr({NOT_NULL: "skipped", UNIQUE: "pass"}),
+        },
     )
 
     signal = await _signal(tools, "test_failure", {"model": "stg_orders"})
@@ -182,7 +191,8 @@ async def test_skipped_tests_are_listed_separately_and_are_not_failures(tmp_path
 @pytest.mark.asyncio
 async def test_warning_test_is_warn(tmp_path):
     tools, _ = _build_tools(
-        tmp_path, current={"manifest": _manifest(), "run_results": _rr({NOT_NULL: "warn", UNIQUE: "pass"})}
+        tmp_path,
+        current={"manifest": _manifest(), "run_results": _rr({NOT_NULL: "warn", UNIQUE: "pass"})},
     )
 
     signal = await _signal(tools, "test_failure", {"model": "stg_orders"})
@@ -228,7 +238,9 @@ async def test_model_run_failure_severity(tmp_path, status, severity):
         tmp_path,
         current={
             "manifest": _manifest(),
-            "run_results": _rr({FCT: {"status": status, "message": "Runtime Error in model fct_orders"}}),
+            "run_results": _rr(
+                {FCT: {"status": status, "message": "Runtime Error in model fct_orders"}}
+            ),
         },
         state={"manifest": _manifest(), "run_results": _rr({FCT: "success"})},
     )
@@ -262,7 +274,8 @@ async def test_model_that_did_not_run_is_unknown(tmp_path):
 )
 async def test_freshness_severity_and_lineage_node(tmp_path, status, severity):
     tools, _ = _build_tools(
-        tmp_path, current={"manifest": _manifest(), "sources": _sources(status, age_seconds=18026.8)}
+        tmp_path,
+        current={"manifest": _manifest(), "sources": _sources(status, age_seconds=18026.8)},
     )
 
     signal = await _signal(tools, "freshness_check_failure", {"source": "raw.orders_sink"})

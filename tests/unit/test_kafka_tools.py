@@ -73,7 +73,9 @@ async def test_consumer_lag_trend_healthy_is_ok(tmp_path):
 @pytest.mark.asyncio
 async def test_rebalance_frequency_flags_storm(tmp_path):
     tools, _, _ = _build_tools(tmp_path, "rebalance_storm_incident.json")
-    result = await tools["rebalance_frequency"].ainvoke({"group": "billing-svc", "window_minutes": 10})
+    result = await tools["rebalance_frequency"].ainvoke(
+        {"group": "billing-svc", "window_minutes": 10}
+    )
     signal = _signal_from_result(result)
     assert signal.severity == "critical"
     assert signal.observed["rebalance_count"] == 6
@@ -82,7 +84,9 @@ async def test_rebalance_frequency_flags_storm(tmp_path):
 @pytest.mark.asyncio
 async def test_rebalance_frequency_healthy_is_ok(tmp_path):
     tools, _, _ = _build_tools(tmp_path, "healthy_baseline.json")
-    result = await tools["rebalance_frequency"].ainvoke({"group": "billing-svc", "window_minutes": 10})
+    result = await tools["rebalance_frequency"].ainvoke(
+        {"group": "billing-svc", "window_minutes": 10}
+    )
     signal = _signal_from_result(result)
     assert signal.severity == "ok"
     assert signal.observed["rebalance_count"] == 0
@@ -160,7 +164,9 @@ async def test_no_data_for_the_identifiers_is_unknown(tmp_path, tool, args):
     # The unknown result names what does exist, so one retry can land.
     if tool == "consumer_lag_trend":
         unknown_topic = args["topic"] == "no-such-topic"
-        field, names = ("known_topics", ["orders"]) if unknown_topic else ("known_groups", ["billing-svc"])
+        field, names = (
+            ("known_topics", ["orders"]) if unknown_topic else ("known_groups", ["billing-svc"])
+        )
     else:
         field, names = {
             "under_replicated_partitions": ("known_topics", ["orders"]),
@@ -192,8 +198,13 @@ def _tools_for(tmp_path, snapshot: dict):
         # Live mode's permanent gap: the topic is real, per-partition
         # throughput is never reported.
         (
-            {"cluster_metadata": {"orders": [{"topic": "orders", "id": 0, "replicas": [1],
-                                              "isr": [1], "leader": 1}]}},
+            {
+                "cluster_metadata": {
+                    "orders": [
+                        {"topic": "orders", "id": 0, "replicas": [1], "isr": [1], "leader": 1}
+                    ]
+                }
+            },
             "hot_partition_skew",
             {"topic": "orders", "window_minutes": 10},
         ),
@@ -204,15 +215,19 @@ def _tools_for(tmp_path, snapshot: dict):
             {"subject": "orders-value"},
         ),
         (
-            {"consumer_group_state_history": {"billing-svc": [{"ts": "t", "state": "Stable"}]},
-             "topic_high_watermarks": {"orders": {"0": 10}}},
+            {
+                "consumer_group_state_history": {"billing-svc": [{"ts": "t", "state": "Stable"}]},
+                "topic_high_watermarks": {"orders": {"0": 10}},
+            },
             "consumer_lag_trend",
             {"group": "billing-svc", "topic": "orders"},
         ),
     ],
     ids=["skew-real-topic", "schema-real-subject", "lag-real-group-and-topic"],
 )
-async def test_identifier_that_exists_without_data_says_not_to_retry(tmp_path, snapshot, tool, args):
+async def test_identifier_that_exists_without_data_says_not_to_retry(
+    tmp_path, snapshot, tool, args
+):
     signal = _signal_from_result(await _tools_for(tmp_path, snapshot)[tool].ainvoke(args))
 
     assert signal.severity == "unknown"

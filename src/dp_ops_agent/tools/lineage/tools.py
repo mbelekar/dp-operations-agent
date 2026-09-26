@@ -49,9 +49,7 @@ def build_lineage_tools(
         upstream system this returns using that system's own tools."""
         now = datetime.now(UTC)
         view = gateway.upstream_lineage(node_id)
-        upstream_nodes = [
-            {"id": n.id, "type": n.type} for n in view.nodes
-        ]
+        upstream_nodes = [{"id": n.id, "type": n.type} for n in view.nodes]
         observed: dict = {"upstream_nodes": upstream_nodes}
         if view.node_found:
             severity = "ok"

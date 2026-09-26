@@ -83,7 +83,7 @@ See [the grounding design](docs/kafka.md#evidence-grounding) and [architecture d
 
 ### Requirements
 
-- Python 3.11+
+- Python 3.14+
 - [uv](https://docs.astral.sh/uv/) for installing dependencies
 - An Anthropic API key for agent runs
 - No Kafka, Flink, Marquez, or dbt installation for the fixture-based path

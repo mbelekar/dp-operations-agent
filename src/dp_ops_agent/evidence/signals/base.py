@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Annotated, Any, ClassVar, Generic, Literal, TypeVar
+from typing import Annotated, Any, ClassVar, Literal, TypeVar
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -46,8 +46,6 @@ Severity = Literal["ok", "warn", "critical", "unknown"]
 DiagnosedSystem = Literal["kafka", "flink", "dbt"]
 
 T = TypeVar("T")
-ScopeT = TypeVar("ScopeT")
-ObservedT = TypeVar("ObservedT")
 
 
 def _is_none(value: object) -> bool:
@@ -85,7 +83,7 @@ class Scope(Payload):
         return SignalTargets()
 
 
-class SignalBase(BaseModel, Generic[ScopeT, ObservedT]):
+class SignalBase[ScopeT, ObservedT](BaseModel):
     """Field order here is the order of keys in every signal's JSON.
 
     Only the concrete per-type classes (kafka.py, flink.py, lineage.py,

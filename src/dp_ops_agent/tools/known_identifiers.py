@@ -8,14 +8,10 @@ large cluster's topic list can't flood the context.
 
 from __future__ import annotations
 
-from typing import TypeVar
-
 MAX_LISTED = 20
 
-T = TypeVar("T")
 
-
-def capped(items: list[T]) -> list[T]:
+def capped[T](items: list[T]) -> list[T]:
     return items[:MAX_LISTED]
 
 

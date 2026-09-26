@@ -17,7 +17,7 @@ tracing a dbt symptom upstream never depends on the model building an id.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any, TypeVar
+from typing import Any
 
 from langchain_core.tools import BaseTool, tool
 
@@ -97,10 +97,7 @@ def _find_model(manifest: ManifestView, name: str) -> ManifestNode | None:
     )
 
 
-_View = TypeVar("_View")
-
-
-def _current(view: _View | None, artifact: str) -> _View:
+def _current[View](view: View | None, artifact: str) -> View:
     """Narrows a current-run artifact. The gateway contract (gateway.py)
     raises DbtArtifactsUnavailable when one is missing, so None here is a
     gateway bug and propagates as one, not as missing data."""

@@ -38,7 +38,7 @@ def _is_unknown_node(resp: httpx.Response) -> bool:
         return False
     try:
         message = resp.json().get("message", "")
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         return False
     return isinstance(message, str) and bool(_UNKNOWN_NODE_MESSAGE_RE.match(message))
 

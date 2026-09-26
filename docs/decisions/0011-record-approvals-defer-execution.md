@@ -1,4 +1,4 @@
-# ADR-0011: Record approvals, defer execution
+# ADR-0011: Record approvals, but defer execution
 
 | Status | Date |
 | --- | --- |
@@ -6,46 +6,60 @@
 
 ## Decision
 
-Phase 4 records human decisions on proposals and stops there. Nothing in the system executes a proposal.
+Record human approval and rejection decisions, but do not execute proposals automatically.
 
-- `dp-ops-agent approve` and `dp-ops-agent reject` record a reviewer's decision on a Tier 1 proposal.
-- Humans run the reviewed command themselves, using the command preview, rollback, and warnings from the proposal (ADR-0010).
-- An executor is deferred, not rejected.
+- `dp-ops-agent approve` records approval of a Tier 1 proposal.
+- `dp-ops-agent reject` records rejection.
+- A human reviews and runs the proposed command separately.
+- Automated execution is deferred, not permanently rejected.
 
 ## Context
 
-The project's focus is finding where an incident started and proposing a grounded fix. A proposal already carries a CLI-checked command, rollback step, and warnings, so an executor would add little beyond automated pre-checks, and would:
+The project currently focuses on grounded diagnosis and safe proposals. Adding an executor would introduce the first component capable of changing a real system.
 
-- cover one action in three (only the Kafka replay can be verified end to end here);
-- be the only code that changes a real system; and
-- rest on self-declared reviewers and approvals stored in plain files.
+That would be premature because:
 
-Approval records are worth having on their own. Design.md treats every approve, reject, or expire decision as the audit trail and as the evidence Phase 5 needs before trusting any autonomy.
+- only the Kafka replay can currently be verified end to end;
+- reviewers are self-declared rather than authenticated; and
+- approvals are stored in local audit files.
 
-## How approvals work
+Approval records are still valuable. They complete the audit trail and provide evidence for deciding whether greater autonomy is justified later.
 
-| Rule | Detail |
+## Approval rules
+
+| Rule | Behaviour |
 | --- | --- |
-| Store | The session audit log: `approval_decision` events next to the proposal's `proposal_created` event |
-| Binding | Each decision records a SHA-256 digest of the approved action |
-| Expiry | 1 hour by default (`--expires-in`) |
-| One decision | A decided proposal can't be decided again, except re-approval after an approval expired |
-| Tier 0 | Can't be approved: there is no action |
-| Reviewer | `--reviewer` is recorded as given, not authenticated |
+| Storage | `approval_decision` events sit beside the proposal in the session audit log |
+| Binding | Approval includes a SHA-256 digest of the exact action |
+| Expiry | Approval lasts one hour by default and is configurable with `--expires-in` |
+| Re-decision | A decided proposal cannot be decided again, except after approval expires |
+| Tier 0 | Cannot be approved because it contains no action |
+| Reviewer identity | Recorded as provided; not authenticated |
 
-`approvals/store.py` also provides the usability check (approved, not rejected, not expired, not used, digest still matches) that a future executor would run.
+`approvals/store.py` also checks whether a proposal is approved, unexpired, unused, and unchanged. A future executor could reuse this logic.
 
 ## Alternatives considered
 
-| Alternative | Why it was rejected or deferred |
+| Alternative | Decision |
 | --- | --- |
-| A human-run `execute` command with a Kafka replay executor | Deferred. It was built and tested (two approval checks, inactive-group check, offset backup, read-back, dry run) and set aside. |
-| An execution tool the agent calls, gated by middleware (ADR-0004's original picture) | Rejected. A diagnosis session ends before a human approves, and keeping the model out of execution removes the prompt-to-state-change path entirely. |
-| Defer all of Phase 4, including approval records | Rejected. Without recorded decisions, Phase 5 has no evidence to assess. |
+| Add a human-run Kafka replay executor | Deferred. It was built and tested, but only covered one of the three actions. |
+| Let the agent call an execution tool after approval | Rejected. Diagnosis ends before approval, and keeping execution outside the agent removes the prompt-to-state-change path. |
+| Defer approval records as well | Rejected. Without recorded decisions, there is no evidence for evaluating future autonomy. |
 
 ## Consequences
 
-- The agent still never changes a system; ADR-0004's boundary holds trivially.
-- The audit log now records the full path from alert to human decision.
-- Approvals stored in plain files can be forged by anyone who can write to `logs/audit/`. The digest detects an edited action, not a forged decision. This is acceptable while nothing executes; an executor would need signed approvals or an access-controlled store first.
-- If execution is picked up later, it should be a human-run command, not an agent tool, with the checks listed above.
+### Benefits
+
+- The agent remains read-only.
+- The audit log covers the path from alert to human decision.
+- Future execution can reuse the action digest, expiry, and single-use checks.
+
+### Limitations
+
+- Anyone able to edit `logs/audit/` can forge an approval.
+- The action digest detects a changed action, not a forged reviewer decision.
+- A real executor would require authenticated reviewers and an access-controlled or signed approval store.
+
+If execution is added later, it should be a human-run command with independent approval and safety checks, not an agent tool.
+
+Related decisions: [ADR-0004](0004-human-approved-remediation.md) and [ADR-0010](0010-proposals-model-chosen-code-checked.md).

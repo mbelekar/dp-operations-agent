@@ -17,6 +17,7 @@ The demo is a real `./auto/run diagnose` invocation against fixture data and a l
 - Diagnoses incidents across Kafka, Flink, lineage, and dbt
 - Traces downstream symptoms back to upstream causes
 - Collects operational evidence through typed diagnostic tools
+- Runs the tool calls in each step in parallel, so one slow system doesn't hold up the others
 - Rejects conclusions that cite evidence the agent did not observe
 - Proposes one reversible, narrow remediation (or none) with a code-generated command, rollback, and warnings
 - Records signals, diagnoses, proposals, and usage in an append-only audit log
@@ -36,7 +37,7 @@ A conventional alert shows where the problem surfaced. This agent follows lineag
 
 ## Current capabilities
 
-The project is at **Phase 3b of 5**.
+The project is at **Phase 4 of 5**.
 
 | Capability | Status | Details |
 | --- | --- | --- |
@@ -112,7 +113,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
   --alert-text "PagerDuty: consumer lag alert on billing-svc/orders"
 ```
 
-The command uses canned infrastructure snapshots and makes one live model call. It returns a structured JSON `Diagnosis`, including the evidence chain and any proposal, and the path to the session audit log.
+The command uses canned infrastructure snapshots and calls the live model several times as it investigates (about six calls in a typical run). It returns a structured JSON `Diagnosis`, including the evidence chain and any proposal, and the path to the session audit log.
 
 All four fixture arguments are required because every diagnostic session exposes all four tool groups. Run the following for the full CLI reference:
 
@@ -131,6 +132,7 @@ Tests and evaluations answer different questions.
 | Tool tests | Tools calculate the expected signals and severity | No |
 | Wiring tests | Gateways, tools, registry, and agent components connect correctly | No |
 | Grounding tests | Empty or unsupported evidence chains are rejected | No |
+| Snapshot tests | The JSON each tool returns to the model doesn't change unexpectedly | No |
 | Live-model test | The agent calls tools and returns a grounded structure | Yes |
 | Agent evaluations | The diagnosis cites the expected root-cause signal type | Yes |
 
@@ -140,7 +142,7 @@ Tests and evaluations answer different questions.
 ./auto/test
 ```
 
-**217/217 tests** run without Kafka, Flink, Marquez, dbt, or Anthropic.
+**446/446 tests** run without Kafka, Flink, Marquez, dbt, or Anthropic.
 
 To include the live-model test:
 
@@ -218,6 +220,8 @@ docker compose --profile app run --rm --no-deps -T app
 
 See [Docker documentation](docs/docker.md) for memory requirements, components, and known gaps. The live stack does not yet contain a dbt project.
 
+Give the stack about a minute after `./auto/live-up` before running a diagnosis. Until the Kafka metrics exporters finish starting, Kafka metric tools fail and the agent carries on without them.
+
 ## Project structure
 
 ```text
@@ -228,8 +232,8 @@ Dockerfile                     # containerized application
 evals/                         # scenarios, deterministic grading, and runner
 tests/                         # unit, integration, and fixture-based tests
 src/dp_ops_agent/
-├── cli.py                     # diagnose command
-├── orchestrator/              # agent session and system prompt
+├── cli.py                     # diagnose, approve, and reject commands
+├── orchestrator/              # agent session, system prompt, and tool error handling
 ├── tools/
 │   ├── registry.py            # tool assembly
 │   ├── kafka/                 # Kafka gateways and diagnostic tools
@@ -237,7 +241,10 @@ src/dp_ops_agent/
 │   ├── lineage/               # Marquez-backed lineage tools
 │   ├── dbt/                   # dbt artifact and state inspection
 │   └── diagnosis_output/      # grounded diagnosis submission
-├── evidence/schema.py         # typed domain contracts
+├── evidence/
+│   ├── schema.py              # diagnosis, proposal, and approval contracts
+│   └── signals/               # typed evidence signals, one class per signal type
+├── approvals/                 # approval and rejection records
 ├── audit/                     # append-only JSONL audit log
 └── runbook/                   # placeholder for a deferred runbook RAG index
 ```

@@ -1,4 +1,4 @@
-# ADR-0013: Async gateways
+# ADR-0013: Make infrastructure gateways asynchronous
 
 | Status | Date |
 | --- | --- |
@@ -6,40 +6,75 @@
 
 ## Decision
 
-Every gateway Protocol method (ADR-0003) is `async def`, and each live gateway uses the most natively async I/O its library offers. The tools only `await` their gateway calls, so their specs and the JSON they return are unchanged.
+Make every gateway protocol method asynchronous and keep blocking work off the event loop.
 
-| I/O | Mechanism | Genuinely non-blocking? |
-| --- | --- | --- |
-| HTTP: JMX aggregator, Schema Registry, Flink REST, Marquez | `httpx.AsyncClient` | Yes |
-| Kafka `list_consumer_groups`, `describe_consumer_groups` | `asyncio.wait_for(asyncio.wrap_future(f), 10.0)` on the library's `concurrent.futures` | Yes: librdkafka completes them on its own threads |
-| Kafka `AdminClient.list_topics`, `Consumer.committed`, `Consumer.get_watermark_offsets` | `asyncio.to_thread` | No: confluent-kafka has no async API for these, so they run in a worker thread, off the event loop |
-| dbt artifact reads (`target/`, `state/`) | `asyncio.to_thread` for the read and JSON parse | Local file I/O in a worker thread |
+Tools now await their gateways without changing their inputs or returned signal JSON.
+
+## I/O strategy
+
+| Infrastructure call | Implementation |
+| --- | --- |
+| JMX, Schema Registry, Flink REST, and Marquez | `httpx.AsyncClient` |
+| Kafka administrative futures | `asyncio.wrap_future` with `asyncio.wait_for` |
+| Blocking Kafka metadata and consumer calls | `asyncio.to_thread` |
+| dbt artifact reads and JSON parsing | `asyncio.to_thread` |
+
+HTTP and Kafka administrative futures are natively non-blocking from the event loop's perspective. Kafka calls without asynchronous APIs and local file reads run in worker threads.
 
 ## Context
 
-The tools were declared `async def`, but every gateway call blocked: synchronous `httpx`, `AdminClient` futures waited on with `.result(timeout=10.0)`, blocking `Consumer` calls, and file reads. LangGraph's tool node runs a turn's tool calls concurrently (`asyncio.gather`), and the model does issue several per turn: a live run produced 9 signals in 6 model calls. But a blocking call inside an `async def` holds the event loop, so those calls ran one after another.
+The tools were declared `async`, but their gateway calls were synchronous. LangGraph can run several tool calls concurrently, but a blocking gateway prevented that concurrency.
 
-Against the local Docker stack the cost was under a second, because model latency dominates. Against a slow or unreachable backend it adds up: three Kafka tools that each hit a 10s timeout would take about 30s instead of 10s. It would also stall every other session if investigations ever shared a process.
+For example, three Kafka calls that each waited ten seconds could take approximately thirty seconds instead of ten. They could also block unrelated investigations sharing the same event loop.
 
-## How it works
+## Resource and concurrency handling
 
-- **Client lifecycle.** An `httpx.AsyncClient` must be closed in the event loop that used it. Each HTTP-backed live gateway has `aclose()`. The CLI builds live gateways inside the coroutine `asyncio.run` executes and closes them with an `AsyncExitStack`, however the diagnosis ends. `aclose` isn't part of the Protocols, because fixture gateways own no resources.
-- **Kafka `Consumer` calls** run in a single worker thread from creation to `close()`, so a `Consumer` is never shared across threads. The `AdminClient` is shared across threads, which librdkafka handles support.
-- **One metrics scrape in flight.** Concurrent Kafka tool calls could each miss the 5-second JMX cache and all scrape the aggregator, which can take seconds. An `asyncio.Lock` makes them share one scrape.
-- **Errors are unchanged.** The gateways still raise `httpx.HTTPError`, `KafkaException` or `TimeoutError`. `asyncio.wait_for` raises the builtin `TimeoutError`, and `asyncio.to_thread` re-raises the thread's exception, so the tool-error middleware and the retry middleware (whose async path already used `asyncio.sleep`) needed no change.
+### HTTP clients
 
-`tests/integration/test_parallel_tool_calls.py` runs the real agent loop with a scripted model that issues three tool calls, one per system, in one message. It checks that all three start before any finishes. Replacing one gateway's `await asyncio.sleep` with a blocking `time.sleep` makes it fail. Per-gateway tests check the same property for each I/O mechanism above.
+Each HTTP-backed live gateway owns an `AsyncClient` and exposes `aclose()`. The CLI creates and closes live gateways inside the same event loop using `AsyncExitStack`, including error paths.
+
+Fixture gateways own no resources, so `aclose()` is not part of the gateway protocols.
+
+### Kafka clients
+
+- Each Kafka `Consumer` is created, used, and closed in one worker thread.
+- The shared `AdminClient` is safe for concurrent use through librdkafka.
+- Administrative futures are awaited without blocking the event loop.
+
+### JMX cache
+
+An `asyncio.Lock` prevents concurrent cache misses from triggering duplicate JMX scrapes. All callers share the first in-flight result.
+
+### Errors
+
+Gateways continue to raise the same `httpx.HTTPError`, `KafkaException`, and `TimeoutError` types. Existing retry and tool-error middleware therefore remain unchanged.
+
+## Verification
+
+`tests/integration/test_parallel_tool_calls.py` runs the real agent loop with a scripted model that requests three systems in one turn.
+
+The test verifies that all three calls start before any finishes. Replacing an asynchronous wait with blocking `time.sleep` causes the test to fail. Gateway-level tests cover the individual I/O mechanisms.
 
 ## Alternatives considered
 
 | Alternative | Why it was rejected |
 | --- | --- |
-| Keep the gateways synchronous and run each call in `asyncio.to_thread` from the tools | Much less change, and the same overlap today. But a cancelled or timed-out call keeps running in its thread until the library's own timeout, concurrency is capped by the default thread pool, and `async def` wouldn't mean what it says. |
-| aiokafka instead of confluent-kafka | Would make the `Consumer` offset and watermark lookups natively async, but replaces the client the live gateway was verified against, including the `PLAINTEXT_HOST` listener setup in [docker.md](../docker.md). Left for a separate change. |
+| Keep synchronous gateways and wrap every call in `to_thread` from the tools | It would hide blocking behaviour at the wrong layer, rely more heavily on the thread pool, and weaken the gateway contract. |
+| Replace `confluent-kafka` with `aiokafka` | Deferred. It would replace a client already verified against the live Docker environment. |
 
 ## Consequences
 
-- A turn's tool calls to different systems overlap, and a slow backend costs roughly its own latency, not the sum.
-- Cancelling a call to an HTTP backend actually cancels it. Cancelling a Kafka `list_topics` or `Consumer` call returns promptly, but its worker thread finishes the library call (up to 10s). An awaited admin future that's cancelled is discarded when librdkafka completes it.
-- `topic_high_watermarks` still queries partitions one after another within its worker thread. Parallelizing that is a separate optimization.
-- Gateway code has to stay non-blocking. A synchronous call slipped into an `async def` gateway method would reintroduce the problem silently. The overlap and ticker tests catch it for the methods they cover, not for every method.
+### Benefits
+
+- Tool calls to different systems can overlap.
+- A slow backend contributes roughly its own latency rather than adding serially to every other call.
+- HTTP cancellation stops the request promptly.
+- Concurrent sessions no longer block each other through synchronous gateway I/O.
+
+### Limitations
+
+- Cancelling a `to_thread` Kafka call returns control promptly, but the worker finishes the underlying operation, up to its timeout.
+- `topic_high_watermarks` still queries partitions sequentially inside one worker thread.
+- The concurrency tests cover representative paths, not every gateway method. A future synchronous call inside an async method could still reintroduce blocking outside those paths.
+
+Related decision: [ADR-0003](0003-gateway-abstraction.md).

@@ -201,4 +201,7 @@ class LiveKafkaGateway:
             resp.raise_for_status()
         except httpx.HTTPStatusError:
             return {}
-        return resp.json()
+        body = resp.json()
+        # Anything but a JSON object is no verdict either; the tool reports
+        # unknown rather than failing to validate it mid-session.
+        return body if isinstance(body, dict) else {}

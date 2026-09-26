@@ -345,3 +345,36 @@ async def test_tools_collect_typed_signals(
     assert type(signal) is signal_class
     assert type(signal.scope) is scope_class
     assert type(signal.observed) is observed_class
+
+
+class _SchemaRegistryReturns(FixtureKafkaGateway):
+    def __init__(self, body):
+        super().__init__(FIXTURE_DIR / "healthy_baseline.json")
+        self._body = body
+
+    def schema_registry_subject(self, subject):
+        return self._body
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verdict", ["false", "true", 1, 0, None])
+async def test_a_non_boolean_compatibility_verdict_is_no_verdict(tmp_path, verdict):
+    """Only a real boolean is a verdict. "false" or 1 must not be coerced into
+    one (a coerced "false" became is_compatible false with severity ok)."""
+    audit = JsonlAuditSink(tmp_path, "test-session")
+    collected: list[Signal] = []
+    tools = {
+        t.name: t
+        for t in build_kafka_tools(
+            _SchemaRegistryReturns({"is_compatible": verdict}), audit, "test-session", collected
+        )
+    }
+
+    signal = _signal_from_result(
+        await tools["schema_registry_compat"].ainvoke({"subject": "orders-value"})
+    )
+
+    assert signal.severity == "unknown"
+    assert signal.observed.is_compatible is None
+    assert signal.observed.raw == {"is_compatible": verdict}
+    assert "exists but has no compatibility verdict" in signal.observed.no_data_reason

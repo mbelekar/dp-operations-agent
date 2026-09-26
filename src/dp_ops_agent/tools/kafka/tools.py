@@ -281,9 +281,11 @@ def build_kafka_tools(
         incompatible schema change."""
         now = datetime.now(UTC)
         result = gateway.schema_registry_subject(subject)
-        if not result or "is_compatible" not in result:
+        verdict = result.get("is_compatible") if result else None
+        if not isinstance(verdict, bool):
             # An empty or unrecognized response is no compatibility verdict at
-            # all, not a compatible one.
+            # all, not a compatible one. Only a real boolean is a verdict: a
+            # "false" string or a 1 isn't coerced into one.
             severity: Severity = "unknown"
             known_subjects = gateway.list_schema_subjects()
             observed = SchemaRegistryCompatObserved(
@@ -298,10 +300,8 @@ def build_kafka_tools(
                 known_subjects=capped(known_subjects),
             )
         else:
-            observed = SchemaRegistryCompatObserved(
-                raw=result, is_compatible=result["is_compatible"]
-            )
-            severity = "ok" if result["is_compatible"] else "critical"
+            observed = SchemaRegistryCompatObserved(raw=result, is_compatible=verdict)
+            severity = "ok" if verdict else "critical"
         signal = SchemaRegistryCompatSignal(
             collected_at=now,
             window_start=now,

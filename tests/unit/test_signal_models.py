@@ -11,10 +11,10 @@ from pathlib import Path
 from typing import get_args
 
 import pytest
-from pydantic import TypeAdapter, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from dp_ops_agent.evidence.schema import DiagnosedSystem, Signal, SignalType
-from dp_ops_agent.evidence.signals.base import SignalBase, SignalTargets
+from dp_ops_agent.evidence.signals.base import Payload, SignalBase, SignalTargets
 from dp_ops_agent.evidence.signals.dbt import (
     DbtModelNotFound,
     DbtModelScope,
@@ -142,3 +142,27 @@ def test_payloads_reject_keys_they_do_not_declare():
 )
 def test_scope_targets(scope, targets):
     assert scope.targets() == targets
+
+
+def _nested_models(annotation) -> set[type[BaseModel]]:
+    """Every pydantic model reachable from a field annotation."""
+    found: set[type[BaseModel]] = set()
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        found.add(annotation)
+        for field in annotation.model_fields.values():
+            found |= _nested_models(field.annotation)
+    for arg in get_args(annotation):
+        found |= _nested_models(arg)
+    return found
+
+
+@pytest.mark.parametrize("signal_class", _CLASSES, ids=lambda c: c.__name__)
+def test_every_payload_model_is_owned_by_the_evidence_layer(signal_class):
+    """Scope and observed models, and everything nested in them, are wire
+    format: Payloads (extra keys forbidden) defined in evidence/signals, not
+    models borrowed from a gateway, where adding a field for gateway reasons
+    would silently change the JSON the model sees."""
+    for name in ("scope", "observed"):
+        for model in _nested_models(signal_class.model_fields[name].annotation):
+            assert issubclass(model, Payload), f"{model.__module__}.{model.__name__}"
+            assert model.__module__.startswith("dp_ops_agent.evidence.signals"), model.__module__

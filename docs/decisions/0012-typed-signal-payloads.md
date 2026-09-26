@@ -39,7 +39,7 @@ The model reads the tool JSON, the audit log stores it, and the prompt names fie
 | Level | What | Typed? |
 | --- | --- | --- |
 | 1 | Every top-level `scope` and `observed` field | Yes |
-| 2 | Nested structures the tools build themselves: partition entries, dbt test results and changed parents, `known_*` refs, lineage upstream nodes | Yes, with Flink's `CheckpointCounts` and `SubtaskBackpressure` reused from the gateway |
+| 2 | Nested structures the tools build themselves: partition entries, dbt test results and changed parents, `known_*` refs, lineage upstream nodes, Flink checkpoint counts and subtask backpressure | Yes. Every nested model is an evidence-layer `Payload`, never a gateway model, so a field added to a gateway for its own reasons can't leak into the JSON. A test enforces it. |
 | 3 | External API data passed through unchanged: consumer-group `state_history`, Flink `matching_exceptions`, the Schema Registry `raw` response, dbt freshness `criteria` | No, `dict[str, Any]` |
 
 Level 3's shape is set by Kafka, Flink, Schema Registry and dbt, not by this project. Typing it belongs in the gateways.

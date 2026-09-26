@@ -14,7 +14,6 @@ from dp_ops_agent.evidence.signals.base import (
     SignalBase,
     SignalTargets,
 )
-from dp_ops_agent.tools.flink.gateway import CheckpointCounts, SubtaskBackpressure
 
 
 class JobScope(Scope):
@@ -30,6 +29,22 @@ class JobVertexScope(Scope):
 
     def targets(self) -> SignalTargets:
         return SignalTargets(job_ids=frozenset({self.job_id}))
+
+
+class CheckpointCounts(Payload):
+    """Wire format, owned here rather than borrowed from the gateway's model
+    of the same shape, so a gateway-side field can't leak into the JSON."""
+
+    completed: int
+    failed: int
+    in_progress: int
+    restored: int
+    total: int
+
+
+class SubtaskBackpressure(Payload):
+    subtask: int
+    ratio: float
 
 
 class NamedRef(Payload):

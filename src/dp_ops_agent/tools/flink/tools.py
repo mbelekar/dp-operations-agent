@@ -10,6 +10,7 @@ from dp_ops_agent.evidence.schema import Severity, Signal
 from dp_ops_agent.evidence.signals.flink import (
     BackpressureRatioObserved,
     BackpressureRatioSignal,
+    CheckpointCounts,
     CheckpointFailureObserved,
     CheckpointFailureSignal,
     JobScope,
@@ -19,6 +20,7 @@ from dp_ops_agent.evidence.signals.flink import (
     SavepointRestoreFailureSignal,
     StateBackendDiskPressureObserved,
     StateBackendDiskPressureSignal,
+    SubtaskBackpressure,
     WatermarkLagObserved,
     WatermarkLagSignal,
 )
@@ -103,7 +105,13 @@ def build_flink_tools(
         most_recent_failed = bool(view.history) and view.history[-1].status == "FAILED"
         critical = most_recent_failed or view.counts.failed >= 3
         observed = CheckpointFailureObserved(
-            counts=view.counts,
+            counts=CheckpointCounts(
+                completed=view.counts.completed,
+                failed=view.counts.failed,
+                in_progress=view.counts.in_progress,
+                restored=view.counts.restored,
+                total=view.counts.total,
+            ),
             most_recent_status=view.history[-1].status if view.history else None,
         )
         if view.counts.total == 0 and not view.history:
@@ -142,7 +150,7 @@ def build_flink_tools(
         observed = BackpressureRatioObserved(
             status=view.status,
             backpressure_level=view.backpressure_level,
-            subtasks=view.subtasks,
+            subtasks=[SubtaskBackpressure(subtask=s.subtask, ratio=s.ratio) for s in view.subtasks],
         )
         if not view.subtasks:
             severity: Severity = "unknown"

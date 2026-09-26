@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Annotated, Any, Generic, Literal, TypeVar
+from typing import Annotated, Any, ClassVar, Generic, Literal, TypeVar
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -40,6 +40,10 @@ SignalType = Literal[
 # "unknown": the tool found no data for the identifiers it was asked about
 # (an unknown vertex, topic, node...). Not evidence of health, see ADR-0009.
 Severity = Literal["ok", "warn", "critical", "unknown"]
+
+# The systems a diagnosis can be about. Lineage signals aren't one of them:
+# they show where to look, and the root cause is on the system they point to.
+DiagnosedSystem = Literal["kafka", "flink", "dbt"]
 
 T = TypeVar("T")
 ScopeT = TypeVar("ScopeT")
@@ -82,7 +86,14 @@ class Scope(Payload):
 
 
 class SignalBase(BaseModel, Generic[ScopeT, ObservedT]):
-    """Field order here is the order of keys in every signal's JSON."""
+    """Field order here is the order of keys in every signal's JSON.
+
+    Only the concrete per-type classes (kafka.py, flink.py, lineage.py,
+    dbt.py) are constructed; each sets `system`."""
+
+    # The system a diagnosis rooted in this signal is about; None for a
+    # signal that can't be a root cause (lineage).
+    system: ClassVar[DiagnosedSystem | None]
 
     signal_id: str = Field(default_factory=lambda: str(uuid4()))
     tool: str
@@ -94,6 +105,13 @@ class SignalBase(BaseModel, Generic[ScopeT, ObservedT]):
     observed: ObservedT
     severity: Severity
     raw_source_ref: str | None = None
+
+    def model_post_init(self, context: Any) -> None:
+        if not hasattr(type(self), "system"):
+            raise TypeError(
+                f"{type(self).__name__} is not a concrete signal class; construct one of "
+                "the per-type classes in dp_ops_agent.evidence.signals"
+            )
 
 
 # Level-3 data: external API responses passed through unchanged (Kafka

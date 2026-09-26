@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import TypeAdapter
 
 from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
 from dp_ops_agent.evidence.schema import Signal
@@ -31,6 +32,9 @@ from dp_ops_agent.tools.kafka.tools import build_kafka_tools
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "kafka"
 
 
+_SIGNAL: TypeAdapter[Signal] = TypeAdapter(Signal)
+
+
 def _build_tools(tmp_path, fixture_name: str):
     gateway = FixtureKafkaGateway(FIXTURE_DIR / fixture_name)
     audit = JsonlAuditSink(tmp_path, "test-session")
@@ -40,7 +44,7 @@ def _build_tools(tmp_path, fixture_name: str):
 
 
 def _signal_from_result(result: str) -> Signal:
-    return Signal.model_validate_json(result)
+    return _SIGNAL.validate_json(result)
 
 
 @pytest.mark.asyncio
@@ -50,9 +54,9 @@ async def test_under_replicated_partitions_detects_urp(tmp_path):
     signal = _signal_from_result(result)
 
     assert signal.severity == "critical"
-    partitions = signal.observed["partitions"]
-    p7 = next(p for p in partitions if p["partition"] == 7)
-    assert p7["under_replicated"] is True
+    partitions = signal.observed.partitions
+    p7 = next(p for p in partitions if p.partition == 7)
+    assert p7.under_replicated is True
     # What was collected is exactly what the model was shown.
     assert [s.model_dump_json() for s in collected] == [result]
 
@@ -71,7 +75,7 @@ async def test_isr_churn_flags_high_shrink_rate(tmp_path):
     result = await tools["isr_churn"].ainvoke({"broker_id": 1, "window_minutes": 10})
     signal = _signal_from_result(result)
     assert signal.severity == "critical"
-    assert signal.observed["max_shrink_rate"] == 2.4
+    assert signal.observed.max_shrink_rate == 2.4
 
 
 @pytest.mark.asyncio
@@ -80,7 +84,7 @@ async def test_consumer_lag_trend_flags_large_lag(tmp_path):
     result = await tools["consumer_lag_trend"].ainvoke({"group": "billing-svc", "topic": "orders"})
     signal = _signal_from_result(result)
     assert signal.severity == "critical"
-    assert signal.observed["lag_by_partition"]["7"] == 12500
+    assert signal.observed.lag_by_partition["7"] == 12500
 
 
 @pytest.mark.asyncio
@@ -99,7 +103,7 @@ async def test_rebalance_frequency_flags_storm(tmp_path):
     )
     signal = _signal_from_result(result)
     assert signal.severity == "critical"
-    assert signal.observed["rebalance_count"] == 6
+    assert signal.observed.rebalance_count == 6
 
 
 @pytest.mark.asyncio
@@ -110,7 +114,7 @@ async def test_rebalance_frequency_healthy_is_ok(tmp_path):
     )
     signal = _signal_from_result(result)
     assert signal.severity == "ok"
-    assert signal.observed["rebalance_count"] == 0
+    assert signal.observed.rebalance_count == 0
 
 
 @pytest.mark.asyncio
@@ -119,7 +123,7 @@ async def test_hot_partition_skew_detects_skew(tmp_path):
     result = await tools["hot_partition_skew"].ainvoke({"topic": "orders", "window_minutes": 10})
     signal = _signal_from_result(result)
     assert signal.severity == "critical"
-    assert signal.observed["skew_ratio"] > 5
+    assert signal.observed.skew_ratio > 5
 
 
 @pytest.mark.asyncio
@@ -136,7 +140,7 @@ async def test_schema_registry_compat_flags_incompatibility(tmp_path):
     result = await tools["schema_registry_compat"].ainvoke({"subject": "orders-value"})
     signal = _signal_from_result(result)
     assert signal.severity == "critical"
-    assert signal.observed["is_compatible"] is False
+    assert signal.observed.is_compatible is False
 
 
 @pytest.mark.asyncio
@@ -145,7 +149,7 @@ async def test_schema_registry_compat_healthy_is_ok(tmp_path):
     result = await tools["schema_registry_compat"].ainvoke({"subject": "orders-value"})
     signal = _signal_from_result(result)
     assert signal.severity == "ok"
-    assert signal.observed["is_compatible"] is True
+    assert signal.observed.is_compatible is True
 
 
 @pytest.mark.asyncio
@@ -181,7 +185,7 @@ async def test_no_data_for_the_identifiers_is_unknown(tmp_path, tool, args):
     signal = _signal_from_result(await tools[tool].ainvoke(args))
 
     assert signal.severity == "unknown"
-    assert signal.observed["no_data_reason"]
+    assert signal.observed.no_data_reason
     # The unknown result names what does exist, so one retry can land.
     if tool == "consumer_lag_trend":
         unknown_topic = args["topic"] == "no-such-topic"
@@ -196,9 +200,9 @@ async def test_no_data_for_the_identifiers_is_unknown(tmp_path, tool, args):
             "hot_partition_skew": ("known_topics", ["orders"]),
             "schema_registry_compat": ("known_subjects", ["orders-value"]),
         }[tool]
-    assert signal.observed[field] == names
+    assert getattr(signal.observed, field) == names
     for name in names:
-        assert str(name) in signal.observed["no_data_reason"]
+        assert str(name) in signal.observed.no_data_reason
 
 
 def _tools_for(tmp_path, snapshot: dict):
@@ -252,8 +256,8 @@ async def test_identifier_that_exists_without_data_says_not_to_retry(
     signal = _signal_from_result(await _tools_for(tmp_path, snapshot)[tool].ainvoke(args))
 
     assert signal.severity == "unknown"
-    assert "exists" in signal.observed["no_data_reason"]
-    assert "don't retry" in signal.observed["no_data_reason"]
+    assert "exists" in signal.observed.no_data_reason
+    assert "don't retry" in signal.observed.no_data_reason
 
 
 @pytest.mark.asyncio
@@ -279,8 +283,8 @@ async def test_consumer_lag_ignores_partitions_without_a_committed_offset(tmp_pa
     )
 
     assert signal.severity == "ok"
-    assert signal.observed["lag_by_partition"] == {"0": 50}
-    assert signal.observed["partitions_without_committed_offset"] == ["1"]
+    assert signal.observed.lag_by_partition == {"0": 50}
+    assert signal.observed.partitions_without_committed_offset == ["1"]
 
 
 @pytest.mark.asyncio

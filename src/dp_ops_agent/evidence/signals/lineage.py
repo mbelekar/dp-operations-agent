@@ -3,9 +3,9 @@ order in the JSON; see base.py."""
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import ClassVar, Literal
 
-from dp_ops_agent.evidence.signals.base import Absent, Payload, Scope, SignalBase
+from dp_ops_agent.evidence.signals.base import Absent, DiagnosedSystem, Payload, Scope, SignalBase
 
 
 class LineageNodeScope(Scope):
@@ -27,3 +27,5 @@ class LineageUpstreamObserved(Payload):
 class LineageUpstreamSignal(SignalBase[LineageNodeScope, LineageUpstreamObserved]):
     tool: Literal["lineage.walk_lineage_upstream"] = "lineage.walk_lineage_upstream"
     signal_type: Literal["lineage_upstream"] = "lineage_upstream"
+    # Lineage shows where to look; it can't be a root cause itself.
+    system: ClassVar[DiagnosedSystem | None] = None

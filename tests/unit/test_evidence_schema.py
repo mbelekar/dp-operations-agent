@@ -1,31 +1,20 @@
 from datetime import UTC, datetime
 
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
-from dp_ops_agent.evidence.schema import Diagnosis, EvidenceChainEntry, Signal
+from dp_ops_agent.evidence.schema import Diagnosis, EvidenceChainEntry, Signal, SignalType
 from dp_ops_agent.tools.diagnosis_output.tools import _derive_system
+from tests.signal_factory import make_signal
 
 
-def _make_signal(**overrides) -> Signal:
-    now = datetime.now(UTC)
-    defaults = dict(
-        tool="kafka.under_replicated_partitions",
-        signal_type="under_replicated_partitions",
-        collected_at=now,
-        window_start=now,
-        window_end=now,
-        scope={"topic": "orders"},
-        observed={"partitions": []},
-        severity="critical",
-    )
-    defaults.update(overrides)
-    return Signal(**defaults)
+def _make_signal(signal_type: SignalType = "under_replicated_partitions", **overrides) -> Signal:
+    return make_signal(signal_type, **overrides)
 
 
 def test_signal_round_trips_through_json():
     signal = _make_signal()
-    restored = Signal.model_validate_json(signal.model_dump_json())
+    restored = TypeAdapter(Signal).validate_json(signal.model_dump_json())
     assert restored == signal
 
 
@@ -111,7 +100,7 @@ def test_diagnosis_rejects_root_cause_signal_id_not_cited_in_evidence_chain():
     ],
 )
 def test_diagnosis_accepts_dbt_root_cause(signal_type):
-    signal = _make_signal(tool=f"dbt.{signal_type}", signal_type=signal_type, scope={})
+    signal = _make_signal(signal_type)
     diagnosis = Diagnosis(
         session_id="s1",
         system=_derive_system(signal),
@@ -171,16 +160,10 @@ from dp_ops_agent.evidence.schema import (  # noqa: E402
     RestartFlinkJobFromCheckpoint,
 )
 
-_FLINK = dict(
-    tool="flink.checkpoint_failure",
-    signal_type="checkpoint_failure",
-    scope={"job_id": "orders-job"},
-)
-_DBT = dict(tool="dbt.test_failure", signal_type="test_failure", scope={"model": "fct_orders"})
+_FLINK = dict(signal_type="checkpoint_failure", scope={"job_id": "orders-job"})
+_DBT = dict(signal_type="test_failure", scope={"model": "fct_orders"})
 _KAFKA_LAG = dict(
-    tool="kafka.consumer_lag_trend",
-    signal_type="consumer_lag_trend",
-    scope={"group": "billing-svc", "topic": "orders"},
+    signal_type="consumer_lag_trend", scope={"group": "billing-svc", "topic": "orders"}
 )
 
 
@@ -189,7 +172,7 @@ def _with_proposal(root_fields: dict, action, tier: int = 1, extra_signals=()) -
     signals = [root, *extra_signals]
     return Diagnosis(
         session_id="s1",
-        system=root_fields["tool"].split(".")[0],
+        system=root.system,
         root_cause_hypothesis="h",
         root_cause_signal_id=root.signal_id,
         confidence="high",

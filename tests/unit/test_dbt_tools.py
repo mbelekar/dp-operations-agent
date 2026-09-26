@@ -3,16 +3,20 @@ comparing as a FixtureDbtGateway snapshot, so the run pair a verdict rests
 on is visible in the test itself."""
 
 import json
+from datetime import UTC, datetime
 
 import pytest
+from pydantic import TypeAdapter
 
 from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
 from dp_ops_agent.evidence.schema import Signal
 from dp_ops_agent.evidence.signals.dbt import (
+    ChangedParent,
     DbtModelNotFound,
     DbtModelScope,
     DbtSourceNotFound,
     DbtSourceScope,
+    DbtTestResult,
     DependencyGraphCompileErrorObserved,
     DependencyGraphCompileErrorSignal,
     FreshnessCheckFailureObserved,
@@ -106,6 +110,9 @@ def _sources(status="pass", age_seconds=600.0):
     }
 
 
+_SIGNAL: TypeAdapter[Signal] = TypeAdapter(Signal)
+
+
 def _build_tools(tmp_path, current: dict, state: dict | None = None):
     path = tmp_path / "dbt_snapshot.json"
     path.write_text(json.dumps({"current": current, "state": state or {}}))
@@ -116,7 +123,7 @@ def _build_tools(tmp_path, current: dict, state: dict | None = None):
 
 
 async def _signal(tools, name: str, args: dict) -> Signal:
-    return Signal.model_validate_json(await tools[name].ainvoke(args))
+    return _SIGNAL.validate_json(await tools[name].ainvoke(args))
 
 
 # --- test_failure -----------------------------------------------------------
@@ -142,22 +149,25 @@ async def test_failure_that_passed_last_run_with_unchanged_code_points_upstream(
     )
 
     result = await tools["test_failure"].ainvoke({"model": "stg_orders"})
-    signal = Signal.model_validate_json(result)
+    signal = _SIGNAL.validate_json(result)
 
     assert signal.tool == "dbt.test_failure"
     assert signal.severity == "critical"
-    assert signal.scope == {"model": "stg_orders", "lineage_node_id": "job:dbt:stg_orders"}
-    assert signal.observed["model_code_changed"] is False
-    assert signal.observed["all_failing_previously_passed"] is True
-    [failing] = signal.observed["failing_tests"]
-    assert failing == {
-        "test": "not_null_stg_orders_order_id",
-        "status": "fail",
-        "failures": 10,
-        "message": "Got 10 results",
-        "previously_passed": True,
-    }
-    assert signal.observed["artifacts_generated_at"]["run_results"] == "2026-09-24T00:08:43Z"
+    assert signal.scope == DbtModelScope(model="stg_orders", lineage_node_id="job:dbt:stg_orders")
+    assert signal.observed.model_code_changed is False
+    assert signal.observed.all_failing_previously_passed is True
+    [failing] = signal.observed.failing_tests
+    assert failing == DbtTestResult(
+        test="not_null_stg_orders_order_id",
+        status="fail",
+        failures=10,
+        message="Got 10 results",
+        previously_passed=True,
+    )
+    # Typed now; it still serializes to "2026-09-24T00:08:43Z" (see the signal snapshot).
+    assert signal.observed.artifacts_generated_at["run_results"] == datetime(
+        2026, 9, 24, 0, 8, 43, tzinfo=UTC
+    )
     # What was collected is exactly what the model was shown.
     assert [s.model_dump_json() for s in collected] == [result]
 
@@ -173,7 +183,7 @@ async def test_failure_after_a_code_change_is_flagged_as_changed(tmp_path):
     signal = await _signal(tools, "test_failure", {"model": "stg_orders"})
 
     assert signal.severity == "critical"
-    assert signal.observed["model_code_changed"] is True
+    assert signal.observed.model_code_changed is True
 
 
 @pytest.mark.asyncio
@@ -184,9 +194,9 @@ async def test_failure_with_no_previous_run_reports_unknown_not_false(tmp_path):
 
     signal = await _signal(tools, "test_failure", {"model": "stg_orders"})
 
-    assert signal.observed["model_code_changed"] is None
-    assert signal.observed["failing_tests"][0]["previously_passed"] is None
-    assert signal.observed["all_failing_previously_passed"] is None
+    assert signal.observed.model_code_changed is None
+    assert signal.observed.failing_tests[0].previously_passed is None
+    assert signal.observed.all_failing_previously_passed is None
 
 
 @pytest.mark.asyncio
@@ -202,8 +212,8 @@ async def test_skipped_tests_are_listed_separately_and_are_not_failures(tmp_path
     signal = await _signal(tools, "test_failure", {"model": "stg_orders"})
 
     assert signal.severity == "ok"
-    assert signal.observed["failing_tests"] == []
-    assert signal.observed["skipped_tests"] == ["not_null_stg_orders_order_id"]
+    assert signal.observed.failing_tests == []
+    assert signal.observed.skipped_tests == ["not_null_stg_orders_order_id"]
 
 
 @pytest.mark.asyncio
@@ -216,7 +226,7 @@ async def test_warning_test_is_warn(tmp_path):
     signal = await _signal(tools, "test_failure", {"model": "stg_orders"})
 
     assert signal.severity == "warn"
-    assert signal.observed["warning_tests"][0]["test"] == "not_null_stg_orders_order_id"
+    assert signal.observed.warning_tests[0].test == "not_null_stg_orders_order_id"
 
 
 @pytest.mark.asyncio
@@ -226,9 +236,9 @@ async def test_unknown_model_is_reported_not_found(tmp_path):
     signal = await _signal(tools, "test_failure", {"model": "no_such_model"})
 
     assert signal.severity == "unknown"
-    assert signal.observed["model_found"] is False
-    assert signal.observed["known_models"] == ["fct_orders", "stg_orders"]
-    assert "stg_orders" in signal.observed["no_data_reason"]
+    assert signal.observed.model_found is False
+    assert signal.observed.known_models == ["fct_orders", "stg_orders"]
+    assert "stg_orders" in signal.observed.no_data_reason
 
 
 @pytest.mark.asyncio
@@ -238,7 +248,7 @@ async def test_model_with_no_test_results_is_unknown(tmp_path):
     signal = await _signal(tools, "test_failure", {"model": "stg_orders"})
 
     assert signal.severity == "unknown"
-    assert signal.observed["not_run_tests"] == [
+    assert signal.observed.not_run_tests == [
         "not_null_stg_orders_order_id",
         "unique_stg_orders_order_id",
     ]
@@ -266,10 +276,10 @@ async def test_model_run_failure_severity(tmp_path, status, severity):
     signal = await _signal(tools, "model_run_failure", {"model": "fct_orders"})
 
     assert signal.severity == severity
-    assert signal.observed["status"] == status
-    assert signal.observed["previous_status"] == "success"
-    assert signal.observed["model_code_changed"] is False
-    assert signal.scope["lineage_node_id"] == "job:dbt:fct_orders"
+    assert signal.observed.status == status
+    assert signal.observed.previous_status == "success"
+    assert signal.observed.model_code_changed is False
+    assert signal.scope.lineage_node_id == "job:dbt:fct_orders"
 
 
 @pytest.mark.asyncio
@@ -279,7 +289,7 @@ async def test_model_that_did_not_run_is_unknown(tmp_path):
     signal = await _signal(tools, "model_run_failure", {"model": "fct_orders"})
 
     assert signal.severity == "unknown"
-    assert signal.observed["status"] == "not_run"
+    assert signal.observed.status == "not_run"
 
 
 # --- freshness_check_failure ------------------------------------------------
@@ -300,11 +310,10 @@ async def test_freshness_severity_and_lineage_node(tmp_path, status, severity):
 
     assert signal.tool == "dbt.freshness_check_failure"
     assert signal.severity == severity
-    assert signal.scope == {
-        "source": "raw.orders_sink",
-        "lineage_node_id": "dataset:warehouse:raw.orders_sink",
-    }
-    assert signal.observed["age_seconds"] == 18026.8
+    assert signal.scope == DbtSourceScope(
+        source="raw.orders_sink", lineage_node_id="dataset:warehouse:raw.orders_sink"
+    )
+    assert signal.observed.age_seconds == 18026.8
 
 
 @pytest.mark.asyncio
@@ -314,9 +323,9 @@ async def test_freshness_unknown_source_is_reported_not_found(tmp_path):
     signal = await _signal(tools, "freshness_check_failure", {"source": "raw.nope"})
 
     assert signal.severity == "unknown"
-    assert signal.observed["source_found"] is False
-    assert signal.observed["known_sources"] == ["raw.orders_sink"]
-    assert "raw.orders_sink" in signal.observed["no_data_reason"]
+    assert signal.observed.source_found is False
+    assert signal.observed.known_sources == ["raw.orders_sink"]
+    assert "raw.orders_sink" in signal.observed.no_data_reason
 
 
 @pytest.mark.asyncio
@@ -327,7 +336,7 @@ async def test_freshness_not_checked_is_unknown(tmp_path):
     signal = await _signal(tools, "freshness_check_failure", {"source": "raw.orders_sink"})
 
     assert signal.severity == "unknown"
-    assert signal.observed["status"] == "not_checked"
+    assert signal.observed.status == "not_checked"
 
 
 # --- incremental_model_drift ------------------------------------------------
@@ -355,8 +364,8 @@ async def test_incremental_drift_thresholds(tmp_path, current_rows, severity):
     signal = await _signal(tools, "incremental_model_drift", {"model": "fct_orders"})
 
     assert signal.severity == severity
-    assert signal.observed["comparable"] is True
-    assert signal.observed["ratio"] == pytest.approx(current_rows / 1000)
+    assert signal.observed.comparable is True
+    assert signal.observed.ratio == pytest.approx(current_rows / 1000)
 
 
 @pytest.mark.asyncio
@@ -369,8 +378,8 @@ async def test_incremental_drift_after_initial_full_build_is_not_comparable(tmp_
     signal = await _signal(tools, "incremental_model_drift", {"model": "fct_orders"})
 
     assert signal.severity == "unknown"
-    assert signal.observed["comparable"] is False
-    assert signal.observed["previous_adapter_code"] == "SELECT"
+    assert signal.observed.comparable is False
+    assert signal.observed.previous_adapter_code == "SELECT"
 
 
 @pytest.mark.asyncio
@@ -382,7 +391,7 @@ async def test_incremental_drift_without_rows_affected_is_unavailable(tmp_path):
     signal = await _signal(tools, "incremental_model_drift", {"model": "fct_orders"})
 
     assert signal.severity == "unknown"
-    assert signal.observed["rows_affected_available"] is False
+    assert signal.observed.rows_affected_available is False
 
 
 @pytest.mark.asyncio
@@ -393,7 +402,7 @@ async def test_incremental_drift_on_non_incremental_model_is_ok(tmp_path):
     signal = await _signal(tools, "incremental_model_drift", {"model": "fct_orders"})
 
     assert signal.severity == "ok"
-    assert signal.observed["materialized"] == "table"
+    assert signal.observed.materialized == "table"
 
 
 # --- dependency_graph_compile_error -----------------------------------------
@@ -423,15 +432,15 @@ async def test_parent_schema_change_is_reported(tmp_path, stg_status, severity):
     signal = await _signal(tools, "dependency_graph_compile_error", {"model": "stg_orders"})
 
     assert signal.severity == severity
-    assert signal.observed["model_code_changed"] is False
-    [parent] = signal.observed["changed_parents"]
-    assert parent == {
-        "parent": "raw.orders_sink",
-        "lineage_node_id": "dataset:warehouse:raw.orders_sink",
-        "added": ["currency"],
-        "removed": ["loaded_at"],
-        "retyped": {"amount": ["DECIMAL(21,1)", "VARCHAR"]},
-    }
+    assert signal.observed.model_code_changed is False
+    [parent] = signal.observed.changed_parents
+    assert parent == ChangedParent(
+        parent="raw.orders_sink",
+        lineage_node_id="dataset:warehouse:raw.orders_sink",
+        added=["currency"],
+        removed=["loaded_at"],
+        retyped={"amount": ["DECIMAL(21,1)", "VARCHAR"]},
+    )
 
 
 @pytest.mark.asyncio
@@ -446,7 +455,7 @@ async def test_unchanged_parents_are_ok(tmp_path):
     signal = await _signal(tools, "dependency_graph_compile_error", {"model": "stg_orders"})
 
     assert signal.severity == "ok"
-    assert signal.observed["changed_parents"] == []
+    assert signal.observed.changed_parents == []
 
 
 @pytest.mark.asyncio
@@ -460,7 +469,7 @@ async def test_missing_catalog_is_reported_not_guessed(tmp_path):
     signal = await _signal(tools, "dependency_graph_compile_error", {"model": "stg_orders"})
 
     assert signal.severity == "unknown"
-    assert signal.observed["catalog_available"] is False
+    assert signal.observed.catalog_available is False
 
 
 @pytest.mark.asyncio
@@ -475,7 +484,7 @@ async def test_parents_missing_from_catalog_are_unknown(tmp_path):
     signal = await _signal(tools, "dependency_graph_compile_error", {"model": "stg_orders"})
 
     assert signal.severity == "unknown"
-    assert signal.observed["parents_not_in_catalog"] == [SRC]
+    assert signal.observed.parents_not_in_catalog == [SRC]
 
 
 # --- unavailable artifacts ----------------------------------------------------

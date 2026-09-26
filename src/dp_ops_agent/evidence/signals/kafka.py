@@ -3,10 +3,11 @@ order in the JSON; see base.py."""
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import ClassVar, Literal
 
 from dp_ops_agent.evidence.signals.base import (
     Absent,
+    DiagnosedSystem,
     PassThrough,
     Payload,
     Scope,
@@ -116,28 +117,34 @@ class SchemaRegistryCompatObserved(Payload):
 class UnderReplicatedPartitionsSignal(SignalBase[TopicsScope, UnderReplicatedPartitionsObserved]):
     tool: Literal["kafka.under_replicated_partitions"] = "kafka.under_replicated_partitions"
     signal_type: Literal["under_replicated_partitions"] = "under_replicated_partitions"
+    system: ClassVar[DiagnosedSystem | None] = "kafka"
 
 
 class IsrChurnSignal(SignalBase[BrokerScope, IsrChurnObserved]):
     tool: Literal["kafka.isr_churn"] = "kafka.isr_churn"
     signal_type: Literal["isr_churn"] = "isr_churn"
+    system: ClassVar[DiagnosedSystem | None] = "kafka"
 
 
 class ConsumerLagTrendSignal(SignalBase[GroupTopicScope, ConsumerLagTrendObserved]):
     tool: Literal["kafka.consumer_lag_trend"] = "kafka.consumer_lag_trend"
     signal_type: Literal["consumer_lag_trend"] = "consumer_lag_trend"
+    system: ClassVar[DiagnosedSystem | None] = "kafka"
 
 
 class RebalanceFrequencySignal(SignalBase[GroupScope, RebalanceFrequencyObserved]):
     tool: Literal["kafka.rebalance_frequency"] = "kafka.rebalance_frequency"
     signal_type: Literal["rebalance_frequency"] = "rebalance_frequency"
+    system: ClassVar[DiagnosedSystem | None] = "kafka"
 
 
 class HotPartitionSkewSignal(SignalBase[TopicScope, HotPartitionSkewObserved]):
     tool: Literal["kafka.hot_partition_skew"] = "kafka.hot_partition_skew"
     signal_type: Literal["hot_partition_skew"] = "hot_partition_skew"
+    system: ClassVar[DiagnosedSystem | None] = "kafka"
 
 
 class SchemaRegistryCompatSignal(SignalBase[SubjectScope, SchemaRegistryCompatObserved]):
     tool: Literal["kafka.schema_registry_compat"] = "kafka.schema_registry_compat"
     signal_type: Literal["schema_registry_compat"] = "schema_registry_compat"
+    system: ClassVar[DiagnosedSystem | None] = "kafka"

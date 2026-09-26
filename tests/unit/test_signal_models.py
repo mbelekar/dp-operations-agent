@@ -1,99 +1,98 @@
-"""The typed scope and observed models reproduce, byte for byte, the JSON
-the tools produced as plain dicts (tests/fixtures/snapshots/signals.json):
-same keys, same order, same keys present or absent, same number encoding."""
+"""The typed signals reproduce, byte for byte, the JSON the tools produced
+as plain dicts (tests/fixtures/snapshots/signals.json): same keys, same
+order, same keys present or absent, same number encoding. Also the rules
+that keep the set of signal classes consistent."""
 
 from __future__ import annotations
 
 import json
 import re
 from pathlib import Path
-from typing import Any, get_args
+from typing import get_args
 
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
-from dp_ops_agent.evidence.schema import SignalType
+from dp_ops_agent.evidence.schema import DiagnosedSystem, Signal, SignalType
 from dp_ops_agent.evidence.signals.base import SignalBase, SignalTargets
 from dp_ops_agent.evidence.signals.dbt import (
     DbtModelNotFound,
     DbtModelScope,
-    DbtSourceNotFound,
     DbtSourceScope,
-    DependencyGraphCompileErrorObserved,
-    FreshnessCheckFailureObserved,
-    IncrementalModelDriftObserved,
-    ModelRunFailureObserved,
-    TestFailureObserved,
+    TestFailureSignal,
 )
 from dp_ops_agent.evidence.signals.flink import (
-    BackpressureRatioObserved,
-    CheckpointFailureObserved,
     JobScope,
     JobVertexScope,
-    SavepointRestoreFailureObserved,
-    StateBackendDiskPressureObserved,
-    WatermarkLagObserved,
 )
 from dp_ops_agent.evidence.signals.kafka import (
     BrokerScope,
-    ConsumerLagTrendObserved,
     GroupScope,
     GroupTopicScope,
-    HotPartitionSkewObserved,
     IsrChurnObserved,
-    RebalanceFrequencyObserved,
-    SchemaRegistryCompatObserved,
     SubjectScope,
     TopicScope,
     TopicsScope,
-    UnderReplicatedPartitionsObserved,
 )
-from dp_ops_agent.evidence.signals.lineage import LineageNodeScope, LineageUpstreamObserved
+from dp_ops_agent.evidence.signals.lineage import (
+    LineageNodeScope,
+    LineageUpstreamSignal,
+)
 
 SNAPSHOT = Path(__file__).resolve().parents[1] / "fixtures" / "snapshots" / "signals.json"
 _TIMESTAMP = re.compile(r'"(collected_at|window_start|window_end)":"<volatile>"')
 _VOLATILE = re.compile(r'"(signal_id|collected_at|window_start|window_end)":"[^"]*"')
 
-PAYLOADS: dict[str, tuple[Any, Any]] = {
-    "under_replicated_partitions": (TopicsScope, UnderReplicatedPartitionsObserved),
-    "isr_churn": (BrokerScope, IsrChurnObserved),
-    "consumer_lag_trend": (GroupTopicScope, ConsumerLagTrendObserved),
-    "rebalance_frequency": (GroupScope, RebalanceFrequencyObserved),
-    "hot_partition_skew": (TopicScope, HotPartitionSkewObserved),
-    "schema_registry_compat": (SubjectScope, SchemaRegistryCompatObserved),
-    "checkpoint_failure": (JobScope, CheckpointFailureObserved),
-    "backpressure_ratio": (JobVertexScope, BackpressureRatioObserved),
-    "watermark_lag": (JobVertexScope, WatermarkLagObserved),
-    "state_backend_disk_pressure": (JobVertexScope, StateBackendDiskPressureObserved),
-    "savepoint_restore_failure": (JobScope, SavepointRestoreFailureObserved),
-    "lineage_upstream": (LineageNodeScope, LineageUpstreamObserved),
-    "test_failure": (DbtModelScope, TestFailureObserved | DbtModelNotFound),
-    "model_run_failure": (DbtModelScope, ModelRunFailureObserved | DbtModelNotFound),
-    "freshness_check_failure": (DbtSourceScope, FreshnessCheckFailureObserved | DbtSourceNotFound),
-    "incremental_model_drift": (DbtModelScope, IncrementalModelDriftObserved | DbtModelNotFound),
-    "dependency_graph_compile_error": (
-        DbtModelScope,
-        DependencyGraphCompileErrorObserved | DbtModelNotFound,
-    ),
-}
-
 SNAPSHOTS: dict[str, str] = json.loads(SNAPSHOT.read_text())
+_SIGNAL: TypeAdapter[Signal] = TypeAdapter(Signal)
+# Every concrete signal class, from the Signal union.
+_CLASSES: list[type[SignalBase]] = list(get_args(get_args(Signal)[0]))
 
 
-def test_every_signal_type_has_payload_models():
-    assert set(PAYLOADS) == set(get_args(SignalType))
+def test_every_signal_type_has_exactly_one_concrete_class():
+    signal_types = [get_args(c.model_fields["signal_type"].annotation)[0] for c in _CLASSES]
+    assert sorted(signal_types) == sorted(get_args(SignalType))
+
+
+@pytest.mark.parametrize("signal_class", _CLASSES, ids=lambda c: c.__name__)
+def test_each_class_declares_the_system_its_tool_belongs_to(signal_class):
+    tool = signal_class.model_fields["tool"].default
+    prefix = tool.split(".", 1)[0]
+    if signal_class is LineageUpstreamSignal:
+        # Lineage shows where to look; it can't be a diagnosis's root cause.
+        assert signal_class.system is None
+    else:
+        assert signal_class.system == prefix
+        assert prefix in get_args(DiagnosedSystem)
+
+
+def test_the_base_class_cannot_be_constructed():
+    now = "2026-09-24T00:00:00Z"
+    fields = dict(
+        tool="kafka.isr_churn",
+        signal_type="isr_churn",
+        collected_at=now,
+        window_start=now,
+        window_end=now,
+        scope={"broker_id": "1"},
+        observed={"isr_shrinks_per_sec": [], "isr_expands_per_sec": [], "max_shrink_rate": 0.0},
+        severity="ok",
+    )
+    with pytest.raises(TypeError, match="not a concrete signal class"):
+        SignalBase(**fields)
+    with pytest.raises(TypeError, match="not a concrete signal class"):
+        SignalBase[BrokerScope, IsrChurnObserved].model_validate(fields)
 
 
 @pytest.mark.parametrize("case_id", sorted(SNAPSHOTS))
-def test_typed_payloads_reproduce_the_snapshot_exactly(case_id):
+def test_typed_signals_reproduce_the_snapshot_exactly(case_id):
     expected = SNAPSHOTS[case_id]
-    signal_type = json.loads(expected)["signal_type"]
-    scope_model, observed_type = PAYLOADS[signal_type]
-    typed = SignalBase[scope_model, observed_type]
-
     valid = _TIMESTAMP.sub(lambda m: f'"{m.group(1)}":"2026-09-24T00:00:00Z"', expected)
-    signal = typed.model_validate_json(valid)
 
+    signal = _SIGNAL.validate_json(valid)
+
+    assert signal.signal_type == json.loads(expected)["signal_type"]
+    assert type(signal) is not SignalBase and isinstance(signal, SignalBase)
     assert not isinstance(signal.scope, dict)
     assert not isinstance(signal.observed, dict)
     redumped = _VOLATILE.sub(lambda m: f'"{m.group(1)}":"<volatile>"', signal.model_dump_json())
@@ -101,20 +100,12 @@ def test_typed_payloads_reproduce_the_snapshot_exactly(case_id):
 
 
 def test_not_found_payload_resolves_to_its_own_shape():
-    observed = json.loads(SNAPSHOTS["test_failure/model-not-found"])["observed"]
-    typed = SignalBase[DbtModelScope, TestFailureObserved | DbtModelNotFound]
-    signal = typed.model_validate(
-        {
-            "tool": "dbt.test_failure",
-            "signal_type": "test_failure",
-            "collected_at": "2026-09-24T00:00:00Z",
-            "window_start": "2026-09-24T00:00:00Z",
-            "window_end": "2026-09-24T00:00:00Z",
-            "scope": {"model": "no_such_model"},
-            "observed": observed,
-            "severity": "unknown",
-        }
+    valid = _TIMESTAMP.sub(
+        lambda m: f'"{m.group(1)}":"2026-09-24T00:00:00Z"',
+        SNAPSHOTS["test_failure/model-not-found"],
     )
+    signal = _SIGNAL.validate_json(valid)
+    assert type(signal) is TestFailureSignal
     assert isinstance(signal.observed, DbtModelNotFound)
 
 

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from pydantic import TypeAdapter
 
 from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
 from dp_ops_agent.evidence.schema import Signal
@@ -8,11 +9,15 @@ from dp_ops_agent.evidence.signals.lineage import (
     LineageNodeScope,
     LineageUpstreamObserved,
     LineageUpstreamSignal,
+    UpstreamNode,
 )
 from dp_ops_agent.tools.lineage.fixture_gateway import FixtureLineageGateway
 from dp_ops_agent.tools.lineage.tools import build_lineage_tools
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "lineage"
+
+
+_SIGNAL: TypeAdapter[Signal] = TypeAdapter(Signal)
 
 
 def _build_tools(tmp_path, fixture_name: str):
@@ -24,7 +29,7 @@ def _build_tools(tmp_path, fixture_name: str):
 
 
 def _signal_from_result(result: str) -> Signal:
-    return Signal.model_validate_json(result)
+    return _SIGNAL.validate_json(result)
 
 
 @pytest.mark.asyncio
@@ -37,7 +42,9 @@ async def test_walk_lineage_upstream_finds_kafka_topic(tmp_path):
 
     assert signal.severity == "ok"
     assert signal.signal_type == "lineage_upstream"
-    assert signal.observed["upstream_nodes"] == [{"id": "dataset:kafka:orders", "type": "DATASET"}]
+    assert signal.observed.upstream_nodes == [
+        UpstreamNode(id="dataset:kafka:orders", type="DATASET")
+    ]
     # What was collected is exactly what the model was shown.
     assert [s.model_dump_json() for s in collected] == [result]
 
@@ -50,8 +57,8 @@ async def test_walk_lineage_upstream_unknown_node_is_unknown(tmp_path):
     signal = _signal_from_result(result)
 
     assert signal.severity == "unknown"
-    assert signal.observed["upstream_nodes"] == []
-    assert signal.observed["no_data_reason"]
+    assert signal.observed.upstream_nodes == []
+    assert signal.observed.no_data_reason
 
 
 @pytest.mark.asyncio
@@ -61,7 +68,7 @@ async def test_walk_lineage_upstream_known_source_node_with_nothing_upstream_is_
     signal = _signal_from_result(result)
 
     assert signal.severity == "ok"
-    assert signal.observed["upstream_nodes"] == []
+    assert signal.observed.upstream_nodes == []
 
 
 @pytest.mark.asyncio

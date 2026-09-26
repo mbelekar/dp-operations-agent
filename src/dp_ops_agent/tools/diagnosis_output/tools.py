@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Literal, get_args
+from typing import Literal
 
 from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field, ValidationError
@@ -80,14 +80,11 @@ def _build_proposal(proposal: _ProposalInput | None) -> Proposal | None:
     )
 
 
-# Signal.tool prefix -> the system a diagnosis on it is about.
-_DIAGNOSED_SYSTEMS: dict[str, DiagnosedSystem] = {s: s for s in get_args(DiagnosedSystem)}
-
-
 def _derive_system(root_cause: Signal) -> DiagnosedSystem | None:
-    """The diagnosed system is derived from the root-cause signal's Signal.tool
-    prefix (e.g. "flink.checkpoint_failure" -> "flink"), not asserted by the
-    model or fixed by the caller — same philosophy as evidence grounding:
+    """The diagnosed system is derived from the root-cause signal's class
+    (each concrete signal class declares it, matching its Signal.tool prefix,
+    e.g. "flink.checkpoint_failure" -> "flink"), not asserted by the model or
+    fixed by the caller — same philosophy as evidence grounding:
     don't trust a claim that can be derived from real collected data. Takes
     the root_cause_signal_id's signal specifically (not "whichever
     evidence_chain entry comes first"), since a cross-system diagnosis can
@@ -95,7 +92,7 @@ def _derive_system(root_cause: Signal) -> DiagnosedSystem | None:
     cause's system is what Diagnosis.system means. None for a signal that
     can't be a root cause (lineage, see DiagnosedSystem).
     """
-    return _DIAGNOSED_SYSTEMS.get(root_cause.tool.split(".", 1)[0])
+    return root_cause.system
 
 
 def build_diagnosis_output_tools(

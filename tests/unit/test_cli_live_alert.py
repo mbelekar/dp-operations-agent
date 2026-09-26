@@ -88,21 +88,13 @@ def _stub_run(monkeypatch, proposal_input):
     from datetime import datetime
 
     from dp_ops_agent import cli
-    from dp_ops_agent.evidence.schema import Diagnosis, EvidenceChainEntry, Signal
+    from dp_ops_agent.evidence.schema import Diagnosis, EvidenceChainEntry
     from dp_ops_agent.orchestrator.session import DiagnosisRunResult, TokenUsage
     from dp_ops_agent.tools.diagnosis_output.tools import _build_proposal
+    from tests.signal_factory import make_signal
 
     now = datetime.now(UTC)
-    signal = Signal(
-        tool="flink.checkpoint_failure",
-        signal_type="checkpoint_failure",
-        collected_at=now,
-        window_start=now,
-        window_end=now,
-        scope={"job_id": "orders-processing-job"},
-        observed={},
-        severity="critical",
-    )
+    signal = make_signal("checkpoint_failure", scope={"job_id": "orders-processing-job"})
     proposal = _build_proposal(proposal_input)
     diagnosis = Diagnosis(
         session_id="s",

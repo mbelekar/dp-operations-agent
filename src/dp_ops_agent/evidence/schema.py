@@ -16,23 +16,16 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, model_validator
 
-from dp_ops_agent.evidence.signals.base import Scope, SignalBase, SignalTargets
+from dp_ops_agent.evidence.signals import Signal as Signal
 
-# Severity and SignalType are defined with the signal envelope and
-# re-exported here, where the rest of the code imports them from.
+# DiagnosedSystem, Severity and SignalType are defined with the signal
+# envelope and re-exported here, where the rest of the code imports them from.
+from dp_ops_agent.evidence.signals.base import DiagnosedSystem as DiagnosedSystem
 from dp_ops_agent.evidence.signals.base import Severity as Severity
+from dp_ops_agent.evidence.signals.base import SignalTargets
 from dp_ops_agent.evidence.signals.base import SignalType as SignalType
 
 Tier = Literal[0, 1, 2]
-# The systems a diagnosis can be about. Lineage signals aren't one of them:
-# they show where to look, and the root cause is on the system they point to.
-DiagnosedSystem = Literal["kafka", "flink", "dbt"]
-
-
-# Unparametrized while the tools migrate to typed payloads (ADR-0012 once
-# complete): scope and observed are validated as Any until each system's
-# tools construct their typed Signal subclasses.
-Signal = SignalBase
 
 
 class EvidenceChainEntry(BaseModel):
@@ -114,28 +107,6 @@ def _action_targets(action: ProposedAction) -> list[tuple[str, str, _TargetSet]]
         ("group", action.group, lambda t: t.groups),
         ("topic", action.topic, lambda t: t.topics),
     ]
-
-
-def _signal_targets(signal: Signal) -> SignalTargets:
-    if isinstance(signal.scope, Scope):
-        return signal.scope.targets()
-    return _dict_scope_targets(signal.scope)
-
-
-def _dict_scope_targets(scope: dict[str, str]) -> SignalTargets:
-    """Temporary, for tools not yet building typed scopes (removed once every
-    system has migrated; see docs/plans/typed-signal-payloads.md). Same
-    lookups _scope_values did on the old dict scopes."""
-
-    def one(key: str) -> frozenset[str]:
-        return frozenset({scope[key]}) if key in scope else frozenset()
-
-    topics = one("topic")
-    if "topics" in scope:  # under_replicated_partitions
-        topics |= frozenset(scope["topics"].split(","))
-    return SignalTargets(
-        job_ids=one("job_id"), models=one("model"), groups=one("group"), topics=topics
-    )
 
 
 class Proposal(BaseModel):
@@ -234,7 +205,7 @@ class Diagnosis(BaseModel):
                 f"system {self.system!r}; propose an action on the root cause's system, "
                 "or no action (Tier 0)"
             )
-        covered = [_signal_targets(s) for s in self.signals]
+        covered = [s.scope.targets() for s in self.signals]
         for key, value, target_set in _action_targets(action):
             if not any(value in target_set(t) for t in covered):
                 raise ValueError(

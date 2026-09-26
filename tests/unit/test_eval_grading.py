@@ -4,37 +4,40 @@ diagnoses (no model calls)."""
 from dataclasses import replace
 from datetime import UTC, datetime
 
-from dp_ops_agent.evidence.schema import Diagnosis, EvidenceChainEntry, Signal
+from dp_ops_agent.evidence.schema import Diagnosis, EvidenceChainEntry, Signal, SignalType
 from dp_ops_agent.tools.diagnosis_output.tools import _build_proposal, _ProposalInput
 from evals.grading import grade
 from evals.scenarios import SCENARIOS
+from tests.signal_factory import make_signal
 
 _BY_NAME = {s.name: s for s in SCENARIOS}
 
 
-def _diagnosis(signal_type: str, tool: str, scope: dict, action: dict | None) -> Diagnosis:
+def _diagnosis(
+    signal_type: SignalType,
+    scope: dict,
+    action: dict | None,
+    supporting: tuple[Signal, ...] = (),
+) -> Diagnosis:
+    """A diagnosis rooted in one signal of signal_type; supporting signals are
+    cited after it (e.g. the lag signal that grounds a replay's group)."""
     now = datetime.now(UTC)
-    signal = Signal(
-        tool=tool,
-        signal_type=signal_type,
-        collected_at=now,
-        window_start=now,
-        window_end=now,
-        scope=scope,
-        observed={},
-        severity="critical",
-    )
+    signal = make_signal(signal_type, scope=scope)
+    signals = [signal, *supporting]
     proposal = (
         _build_proposal(_ProposalInput(action=action, expected_outcome="x")) if action else None
     )
     return Diagnosis(
         session_id="s",
-        system=tool.split(".")[0],
+        system=signal.system,
         root_cause_hypothesis="h",
         root_cause_signal_id=signal.signal_id,
         confidence="high",
-        evidence_chain=[EvidenceChainEntry(step=1, signal_id=signal.signal_id, interpretation="x")],
-        signals=[signal],
+        evidence_chain=[
+            EvidenceChainEntry(step=i, signal_id=s.signal_id, interpretation="x")
+            for i, s in enumerate(signals, start=1)
+        ],
+        signals=signals,
         tier=proposal.tier if proposal else 0,
         proposal=proposal,
         created_at=now,
@@ -42,14 +45,10 @@ def _diagnosis(signal_type: str, tool: str, scope: dict, action: dict | None) ->
     )
 
 
-_CHECKPOINT = (
-    "checkpoint_failure",
-    "flink.checkpoint_failure",
-    {"job_id": "orders-processing-job"},
-)
-_MODEL_ERROR = ("model_run_failure", "dbt.model_run_failure", {"model": "fct_orders"})
+_CHECKPOINT = ("checkpoint_failure", {"job_id": "orders-processing-job"})
+_MODEL_ERROR = ("model_run_failure", {"model": "fct_orders"})
 _RERUN = {"action_type": "rerun_dbt_model", "model": "fct_orders"}
-_ISR = ("isr_churn", "kafka.isr_churn", {"broker_id": "1", "group": "g", "topic": "orders"})
+_ISR = ("isr_churn", {"broker_id": "1"})
 
 
 def test_expected_action_proposed_passes():
@@ -88,7 +87,9 @@ def test_tier0_expected_but_an_action_proposed_fails():
         "to_offset": 10,
     }
 
-    result = grade(_diagnosis(*_ISR, replay), _BY_NAME["urp_lag_spike"])
+    lag = make_signal("consumer_lag_trend", scope={"group": "g", "topic": "orders"})
+
+    result = grade(_diagnosis(*_ISR, replay, supporting=(lag,)), _BY_NAME["urp_lag_spike"])
 
     assert not result.passed
     assert "Tier 0" in result.reason

@@ -10,10 +10,11 @@ each observed type is a union with its not-found shape.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import ClassVar, Literal
 
 from dp_ops_agent.evidence.signals.base import (
     Absent,
+    DiagnosedSystem,
     PassThrough,
     Payload,
     Scope,
@@ -131,11 +132,13 @@ class TestFailureSignal(SignalBase[DbtModelScope, TestFailureObserved | DbtModel
 
     tool: Literal["dbt.test_failure"] = "dbt.test_failure"
     signal_type: Literal["test_failure"] = "test_failure"
+    system: ClassVar[DiagnosedSystem | None] = "dbt"
 
 
 class ModelRunFailureSignal(SignalBase[DbtModelScope, ModelRunFailureObserved | DbtModelNotFound]):
     tool: Literal["dbt.model_run_failure"] = "dbt.model_run_failure"
     signal_type: Literal["model_run_failure"] = "model_run_failure"
+    system: ClassVar[DiagnosedSystem | None] = "dbt"
 
 
 class FreshnessCheckFailureSignal(
@@ -143,6 +146,7 @@ class FreshnessCheckFailureSignal(
 ):
     tool: Literal["dbt.freshness_check_failure"] = "dbt.freshness_check_failure"
     signal_type: Literal["freshness_check_failure"] = "freshness_check_failure"
+    system: ClassVar[DiagnosedSystem | None] = "dbt"
 
 
 class IncrementalModelDriftSignal(
@@ -150,6 +154,7 @@ class IncrementalModelDriftSignal(
 ):
     tool: Literal["dbt.incremental_model_drift"] = "dbt.incremental_model_drift"
     signal_type: Literal["incremental_model_drift"] = "incremental_model_drift"
+    system: ClassVar[DiagnosedSystem | None] = "dbt"
 
 
 class DependencyGraphCompileErrorSignal(
@@ -157,3 +162,4 @@ class DependencyGraphCompileErrorSignal(
 ):
     tool: Literal["dbt.dependency_graph_compile_error"] = "dbt.dependency_graph_compile_error"
     signal_type: Literal["dependency_graph_compile_error"] = "dependency_graph_compile_error"
+    system: ClassVar[DiagnosedSystem | None] = "dbt"

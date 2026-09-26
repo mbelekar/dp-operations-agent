@@ -3,10 +3,11 @@ order in the JSON; see base.py."""
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import ClassVar, Literal
 
 from dp_ops_agent.evidence.signals.base import (
     Absent,
+    DiagnosedSystem,
     PassThrough,
     Payload,
     Scope,
@@ -84,23 +85,28 @@ class SavepointRestoreFailureObserved(Payload):
 class CheckpointFailureSignal(SignalBase[JobScope, CheckpointFailureObserved]):
     tool: Literal["flink.checkpoint_failure"] = "flink.checkpoint_failure"
     signal_type: Literal["checkpoint_failure"] = "checkpoint_failure"
+    system: ClassVar[DiagnosedSystem | None] = "flink"
 
 
 class BackpressureRatioSignal(SignalBase[JobVertexScope, BackpressureRatioObserved]):
     tool: Literal["flink.backpressure_ratio"] = "flink.backpressure_ratio"
     signal_type: Literal["backpressure_ratio"] = "backpressure_ratio"
+    system: ClassVar[DiagnosedSystem | None] = "flink"
 
 
 class WatermarkLagSignal(SignalBase[JobVertexScope, WatermarkLagObserved]):
     tool: Literal["flink.watermark_lag"] = "flink.watermark_lag"
     signal_type: Literal["watermark_lag"] = "watermark_lag"
+    system: ClassVar[DiagnosedSystem | None] = "flink"
 
 
 class StateBackendDiskPressureSignal(SignalBase[JobVertexScope, StateBackendDiskPressureObserved]):
     tool: Literal["flink.state_backend_disk_pressure"] = "flink.state_backend_disk_pressure"
     signal_type: Literal["state_backend_disk_pressure"] = "state_backend_disk_pressure"
+    system: ClassVar[DiagnosedSystem | None] = "flink"
 
 
 class SavepointRestoreFailureSignal(SignalBase[JobScope, SavepointRestoreFailureObserved]):
     tool: Literal["flink.savepoint_restore_failure"] = "flink.savepoint_restore_failure"
     signal_type: Literal["savepoint_restore_failure"] = "savepoint_restore_failure"
+    system: ClassVar[DiagnosedSystem | None] = "flink"

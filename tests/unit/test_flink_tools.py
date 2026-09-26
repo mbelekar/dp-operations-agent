@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import TypeAdapter
 
 from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
 from dp_ops_agent.evidence.schema import Signal
@@ -12,6 +13,7 @@ from dp_ops_agent.evidence.signals.flink import (
     CheckpointFailureSignal,
     JobScope,
     JobVertexScope,
+    NamedRef,
     SavepointRestoreFailureObserved,
     SavepointRestoreFailureSignal,
     StateBackendDiskPressureObserved,
@@ -25,6 +27,9 @@ from dp_ops_agent.tools.flink.tools import build_flink_tools
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "flink"
 
 
+_SIGNAL: TypeAdapter[Signal] = TypeAdapter(Signal)
+
+
 def _build_tools(tmp_path, fixture_name: str):
     gateway = FixtureFlinkGateway(FIXTURE_DIR / fixture_name)
     audit = JsonlAuditSink(tmp_path, "test-session")
@@ -34,7 +39,7 @@ def _build_tools(tmp_path, fixture_name: str):
 
 
 def _signal_from_result(result: str) -> Signal:
-    return Signal.model_validate_json(result)
+    return _SIGNAL.validate_json(result)
 
 
 @pytest.mark.asyncio
@@ -44,7 +49,7 @@ async def test_checkpoint_failure_detects_repeated_failures(tmp_path):
     signal = _signal_from_result(result)
 
     assert signal.severity == "critical"
-    assert signal.observed["counts"]["failed"] == 5
+    assert signal.observed.counts.failed == 5
     # What was collected is exactly what the model was shown.
     assert [s.model_dump_json() for s in collected] == [result]
 
@@ -65,7 +70,7 @@ async def test_backpressure_ratio_flags_high_backpressure(tmp_path):
     )
     signal = _signal_from_result(result)
     assert signal.severity == "critical"
-    assert signal.observed["backpressure_level"] == "high"
+    assert signal.observed.backpressure_level == "high"
 
 
 @pytest.mark.asyncio
@@ -86,7 +91,7 @@ async def test_watermark_lag_flags_large_lag(tmp_path):
     )
     signal = _signal_from_result(result)
     assert signal.severity == "ok"  # 800ms lag, below the 10s warn threshold
-    assert signal.observed["max_lag_ms"] == 800.0
+    assert signal.observed.max_lag_ms == 800.0
 
 
 @pytest.mark.asyncio
@@ -140,14 +145,14 @@ async def test_no_data_for_the_identifiers_is_unknown_not_ok(tmp_path, tool, arg
     signal = _signal_from_result(await tools[tool].ainvoke(args))
 
     assert signal.severity == "unknown"
-    assert signal.observed["no_data_reason"]
+    assert signal.observed.no_data_reason
     # The unknown result names what does exist, so one retry can land.
     if "vertex_id" in args:
-        assert signal.observed["known_vertices"] == [{"id": "source", "name": "source"}]
-        assert "source" in signal.observed["no_data_reason"]
+        assert signal.observed.known_vertices == [NamedRef(id="source", name="source")]
+        assert "source" in signal.observed.no_data_reason
     else:
-        assert signal.observed["known_jobs"] == [
-            {"id": "orders-processing-job", "name": "orders-processing-job"}
+        assert signal.observed.known_jobs == [
+            NamedRef(id="orders-processing-job", name="orders-processing-job")
         ]
 
 
@@ -181,8 +186,8 @@ async def test_vertex_that_exists_without_the_metric_says_not_to_retry(tmp_path)
     )
 
     assert signal.severity == "unknown"
-    assert "exists" in signal.observed["no_data_reason"]
-    assert "don't retry" in signal.observed["no_data_reason"]
+    assert "exists" in signal.observed.no_data_reason
+    assert "don't retry" in signal.observed.no_data_reason
 
 
 @pytest.mark.asyncio

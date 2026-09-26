@@ -39,6 +39,9 @@ SignalType = Literal[
 # (an unknown vertex, topic, node...). Not evidence of health, see ADR-0009.
 Severity = Literal["ok", "warn", "critical", "unknown"]
 Tier = Literal[0, 1, 2]
+# The systems a diagnosis can be about. Lineage signals aren't one of them:
+# they show where to look, and the root cause is on the system they point to.
+DiagnosedSystem = Literal["kafka", "flink", "dbt"]
 
 
 class Signal(BaseModel):
@@ -163,7 +166,7 @@ class ApprovalRecord(BaseModel):
 class Diagnosis(BaseModel):
     diagnosis_id: str = Field(default_factory=lambda: str(uuid4()))
     session_id: str
-    system: Literal["kafka", "flink", "dbt"]
+    system: DiagnosedSystem
     root_cause_hypothesis: str
     root_cause_signal_id: str
     confidence: Literal["low", "medium", "high"]

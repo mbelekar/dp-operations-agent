@@ -628,3 +628,34 @@ async def test_submit_diagnosis_rejects_unknown_root_cause_with_grounding_messag
         "signal collected this session"
     )
     assert "diagnosis" not in result_holder
+
+
+@pytest.mark.asyncio
+async def test_submit_diagnosis_rejects_a_lineage_root_cause_with_a_clear_message(tmp_path):
+    """Lineage shows where to look; the root cause is on the system it points
+    to. Rejecting it must say so, not fail on Diagnosis.system's Literal."""
+    tools, result_holder = _build_tools(
+        tmp_path, "wiring-test-lineage-root", lineage_fixture=FLAGSHIP_LINEAGE_FIXTURE
+    )
+    lineage = json.loads(
+        await tools["walk_lineage_upstream"].ainvoke({"node_id": "job:flink:orders-processing-job"})
+    )
+    assert lineage["severity"] == "ok"
+
+    submit_result = await tools["submit_diagnosis"].ainvoke(
+        {
+            "root_cause_hypothesis": "the upstream topic",
+            "root_cause_signal_id": lineage["signal_id"],
+            "confidence": "low",
+            "evidence_chain": [
+                {"step": 1, "signal_id": lineage["signal_id"], "interpretation": "x"}
+            ],
+        }
+    )
+
+    assert submit_result == (
+        f"submit_diagnosis rejected: root_cause_signal_id {lineage['signal_id']!r} is a "
+        "lineage signal; lineage shows where to look, not a root cause. Cite a signal "
+        "from the upstream system it points to."
+    )
+    assert "diagnosis" not in result_holder

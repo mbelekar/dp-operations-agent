@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Literal, get_args
 
 from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field, ValidationError
@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, ValidationError
 from dp_ops_agent.audit.models import AuditEvent
 from dp_ops_agent.audit.sink import AuditSink
 from dp_ops_agent.evidence.schema import (
+    DiagnosedSystem,
     Diagnosis,
     EvidenceChainEntry,
     Proposal,
@@ -79,7 +80,11 @@ def _build_proposal(proposal: _ProposalInput | None) -> Proposal | None:
     )
 
 
-def _derive_system(root_cause: Signal) -> str:
+# Signal.tool prefix -> the system a diagnosis on it is about.
+_DIAGNOSED_SYSTEMS: dict[str, DiagnosedSystem] = {s: s for s in get_args(DiagnosedSystem)}
+
+
+def _derive_system(root_cause: Signal) -> DiagnosedSystem | None:
     """The diagnosed system is derived from the root-cause signal's Signal.tool
     prefix (e.g. "flink.checkpoint_failure" -> "flink"), not asserted by the
     model or fixed by the caller — same philosophy as evidence grounding:
@@ -87,9 +92,10 @@ def _derive_system(root_cause: Signal) -> str:
     the root_cause_signal_id's signal specifically (not "whichever
     evidence_chain entry comes first"), since a cross-system diagnosis can
     legitimately cite signals from more than one system, only the root
-    cause's system is what Diagnosis.system means.
+    cause's system is what Diagnosis.system means. None for a signal that
+    can't be a root cause (lineage, see DiagnosedSystem).
     """
-    return root_cause.tool.split(".", 1)[0]
+    return _DIAGNOSED_SYSTEMS.get(root_cause.tool.split(".", 1)[0])
 
 
 def build_diagnosis_output_tools(
@@ -130,11 +136,18 @@ def build_diagnosis_output_tools(
                 f"submit_diagnosis rejected: root_cause_signal_id {root_cause_signal_id!r} "
                 "is not a signal collected this session"
             )
+        system = _derive_system(root_cause)
+        if system is None:
+            return (
+                f"submit_diagnosis rejected: root_cause_signal_id {root_cause_signal_id!r} is a "
+                "lineage signal; lineage shows where to look, not a root cause. Cite a signal "
+                "from the upstream system it points to."
+            )
         try:
             built_proposal = _build_proposal(proposal)
             diagnosis = Diagnosis(
                 session_id=session_id,
-                system=_derive_system(root_cause),
+                system=system,
                 root_cause_hypothesis=root_cause_hypothesis,
                 root_cause_signal_id=root_cause_signal_id,
                 confidence=confidence,

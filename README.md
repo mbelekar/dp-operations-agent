@@ -83,6 +83,7 @@ See [the grounding design](docs/kafka.md#evidence-grounding) and [architecture d
 ### Requirements
 
 - Python 3.11+
+- [uv](https://docs.astral.sh/uv/) for installing dependencies
 - An Anthropic API key for agent runs
 - No Kafka, Flink, Marquez, or dbt installation for the fixture-based path
 
@@ -92,7 +93,7 @@ See [the grounding design](docs/kafka.md#evidence-grounding) and [architecture d
 ./auto/build
 ```
 
-The build creates `.venv` and installs the project with its development dependencies.
+The build creates `.venv` and installs the project with its development dependencies, at the exact versions pinned in `uv.lock`. After changing dependencies in `pyproject.toml`, run `uv lock` and commit the updated `uv.lock`.
 
 ### Configure the model
 

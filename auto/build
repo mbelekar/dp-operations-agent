@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
-# Creates a virtualenv (if missing) and installs the project with dev dependencies.
+# Creates .venv and installs the project with dev dependencies, exactly as
+# pinned in uv.lock. Requires uv (https://docs.astral.sh/uv/).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-if [ ! -d ".venv" ]; then
-  python3 -m venv .venv
-fi
-
-source .venv/bin/activate
-pip install -q --upgrade pip
-pip install -e ".[dev]"
+uv sync --frozen

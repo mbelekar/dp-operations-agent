@@ -5,19 +5,24 @@ description = "Data Platform Operations Agent: diagnoses failures across Kafka, 
 license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = [
-    "langchain>=1.4",
-    "langgraph>=1.2",
-    "langchain-anthropic",
-    "langsmith",
-    "confluent-kafka",
-    "pydantic>=2",
-    "httpx",
-    "typer",
-    "python-dotenv",
+    "langchain>=1.4.2,<2",
+    "langgraph>=1.2.11,<2",
+    "langchain-anthropic>=1.7.2,<2",
+    "langsmith>=0.13.0,<1",
+    "confluent-kafka>=2.15.1,<3",
+    "pydantic>=2.13.5,<3",
+    "httpx>=0.28.1,<1",
+    "typer>=0.27.2,<1",
+    "python-dotenv>=1.2.3,<2",
 ]
 
-[project.optional-dependencies]
-dev = ["pytest", "pytest-asyncio", "freezegun"]
+# Installed by default with `uv sync`; `uv sync --no-dev` leaves them out.
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1,<10",
+    "pytest-asyncio>=1.4.0,<2",
+    "freezegun>=1.5.5,<2",
+]
 
 [project.scripts]
 dp-ops-agent = "dp_ops_agent.cli:app"

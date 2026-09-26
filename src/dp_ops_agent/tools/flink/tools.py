@@ -64,7 +64,7 @@ def build_flink_tools(
     session_id: str,
     collected_signals: list[Signal],
 ) -> list[BaseTool]:
-    def _set_no_vertex_data(
+    async def _set_no_vertex_data(
         observed: BackpressureRatioObserved
         | WatermarkLagObserved
         | StateBackendDiskPressureObserved,
@@ -74,7 +74,7 @@ def build_flink_tools(
     ) -> None:
         """Fill in an unknown result on a vertex lookup: whether the vertex
         exists (then don't retry it) or which ones do."""
-        vertices = gateway.list_vertices(job_id)
+        vertices = await gateway.list_vertices(job_id)
         if any(v.id == vertex_id for v in vertices):
             observed.no_data_reason = (
                 f"vertex {vertex_id!r} of job {job_id!r} exists but reports no {what}; "
@@ -88,7 +88,7 @@ def build_flink_tools(
             )
             observed.known_vertices = _refs(vertices)
         else:
-            jobs = gateway.list_jobs()
+            jobs = await gateway.list_jobs()
             observed.no_data_reason = (
                 f"no vertices found for job {job_id!r}; known jobs (pass the id): "
                 f"{_describe_refs(jobs)}"
@@ -101,7 +101,7 @@ def build_flink_tools(
         """Report checkpoint failure history for a Flink job. Signals growing
         state size, a slow sink, or backpressure upstream of the barrier."""
         now = datetime.now(UTC)
-        view = gateway.checkpoint_history(job_id)
+        view = await gateway.checkpoint_history(job_id)
         most_recent_failed = bool(view.history) and view.history[-1].status == "FAILED"
         critical = most_recent_failed or view.counts.failed >= 3
         observed = CheckpointFailureObserved(
@@ -116,7 +116,7 @@ def build_flink_tools(
         )
         if view.counts.total == 0 and not view.history:
             severity: Severity = "unknown"
-            jobs = gateway.list_jobs()
+            jobs = await gateway.list_jobs()
             observed.known_jobs = _refs(jobs)
             if any(j.id == job_id for j in jobs):
                 observed.no_data_reason = (
@@ -145,7 +145,7 @@ def build_flink_tools(
         (operator). Localizes the actual bottleneck operator rather than
         just indicating "the job is slow"."""
         now = datetime.now(UTC)
-        view = gateway.backpressure(job_id, vertex_id)
+        view = await gateway.backpressure(job_id, vertex_id)
         level = view.backpressure_level.lower()
         observed = BackpressureRatioObserved(
             status=view.status,
@@ -154,7 +154,7 @@ def build_flink_tools(
         )
         if not view.subtasks:
             severity: Severity = "unknown"
-            _set_no_vertex_data(observed, job_id, vertex_id, "backpressure samples")
+            await _set_no_vertex_data(observed, job_id, vertex_id, "backpressure samples")
         else:
             severity = "critical" if level == "high" else ("warn" if level == "low" else "ok")
         signal = BackpressureRatioSignal(
@@ -174,7 +174,7 @@ def build_flink_tools(
         vertex. Signals event-time skew, often caused by a stalled upstream
         Kafka partition."""
         now = datetime.now(UTC)
-        lag_by_subtask = gateway.watermark_lag(job_id, vertex_id)
+        lag_by_subtask = await gateway.watermark_lag(job_id, vertex_id)
         max_lag_ms = max(lag_by_subtask.values(), default=0.0)
         observed = WatermarkLagObserved(
             lag_ms_by_subtask={str(k): v for k, v in lag_by_subtask.items()},
@@ -182,7 +182,7 @@ def build_flink_tools(
         )
         if not lag_by_subtask:
             severity: Severity = "unknown"
-            _set_no_vertex_data(observed, job_id, vertex_id, "watermark metrics")
+            await _set_no_vertex_data(observed, job_id, vertex_id, "watermark metrics")
         else:
             severity = (
                 "critical" if max_lag_ms > 60_000 else ("warn" if max_lag_ms > 10_000 else "ok")
@@ -204,12 +204,12 @@ def build_flink_tools(
         Flink job vertex. Signals state growth from a skewed key, missing
         TTL, or an unbounded window."""
         now = datetime.now(UTC)
-        metrics = gateway.task_manager_disk_metrics(job_id, vertex_id)
+        metrics = await gateway.task_manager_disk_metrics(job_id, vertex_id)
         disk_used_ratio = metrics.get("disk_used_ratio")
         observed = StateBackendDiskPressureObserved(metrics=metrics)
         if disk_used_ratio is None:
             severity: Severity = "unknown"
-            _set_no_vertex_data(observed, job_id, vertex_id, "disk_used_ratio metric")
+            await _set_no_vertex_data(observed, job_id, vertex_id, "disk_used_ratio metric")
         elif disk_used_ratio > 0.9:
             severity = "critical"
         elif disk_used_ratio > 0.7:
@@ -234,7 +234,7 @@ def build_flink_tools(
         after a job graph or operator UID change. Heuristic: inferred from
         exception text, since Flink has no dedicated REST field for this."""
         now = datetime.now(UTC)
-        exceptions = gateway.job_exceptions(job_id, window_minutes)
+        exceptions = await gateway.job_exceptions(job_id, window_minutes)
         matches = [
             e
             for e in exceptions

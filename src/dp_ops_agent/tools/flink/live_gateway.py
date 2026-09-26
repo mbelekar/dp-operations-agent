@@ -44,20 +44,23 @@ from dp_ops_agent.tools.flink.gateway import (
 class LiveFlinkGateway:
     def __init__(self, rest_base_url: str) -> None:
         self._base_url = rest_base_url.rstrip("/")
-        self._http = httpx.Client(timeout=10.0)
+        self._http = httpx.AsyncClient(timeout=10.0)
 
-    def list_jobs(self) -> list[NamedId]:
-        resp = self._http.get(f"{self._base_url}/jobs/overview")
+    async def aclose(self) -> None:
+        await self._http.aclose()
+
+    async def list_jobs(self) -> list[NamedId]:
+        resp = await self._http.get(f"{self._base_url}/jobs/overview")
         resp.raise_for_status()
         return [NamedId(id=j["jid"], name=j["name"]) for j in resp.json().get("jobs", [])]
 
-    def list_vertices(self, job_id: str) -> list[NamedId]:
-        resp = self._http.get(f"{self._base_url}/jobs/{job_id}")
+    async def list_vertices(self, job_id: str) -> list[NamedId]:
+        resp = await self._http.get(f"{self._base_url}/jobs/{job_id}")
         resp.raise_for_status()
         return [NamedId(id=v["id"], name=v["name"]) for v in resp.json().get("vertices", [])]
 
-    def checkpoint_history(self, job_id: str) -> CheckpointHistoryView:
-        resp = self._http.get(f"{self._base_url}/jobs/{job_id}/checkpoints")
+    async def checkpoint_history(self, job_id: str) -> CheckpointHistoryView:
+        resp = await self._http.get(f"{self._base_url}/jobs/{job_id}/checkpoints")
         resp.raise_for_status()
         data = resp.json()
         return CheckpointHistoryView(
@@ -73,8 +76,10 @@ class LiveFlinkGateway:
             ],
         )
 
-    def backpressure(self, job_id: str, vertex_id: str) -> BackpressureView:
-        resp = self._http.get(f"{self._base_url}/jobs/{job_id}/vertices/{vertex_id}/backpressure")
+    async def backpressure(self, job_id: str, vertex_id: str) -> BackpressureView:
+        resp = await self._http.get(
+            f"{self._base_url}/jobs/{job_id}/vertices/{vertex_id}/backpressure"
+        )
         resp.raise_for_status()
         data = resp.json()
         subtasks = [
@@ -87,20 +92,20 @@ class LiveFlinkGateway:
             subtasks=subtasks,
         )
 
-    def _available_metric_ids(self, job_id: str, vertex_id: str) -> list[str]:
-        resp = self._http.get(f"{self._base_url}/jobs/{job_id}/vertices/{vertex_id}/metrics")
+    async def _available_metric_ids(self, job_id: str, vertex_id: str) -> list[str]:
+        resp = await self._http.get(f"{self._base_url}/jobs/{job_id}/vertices/{vertex_id}/metrics")
         resp.raise_for_status()
         return [m["id"] for m in resp.json()]
 
-    def watermark_lag(self, job_id: str, vertex_id: str) -> dict[int, float]:
+    async def watermark_lag(self, job_id: str, vertex_id: str) -> dict[int, float]:
         metric_ids = [
             m
-            for m in self._available_metric_ids(job_id, vertex_id)
+            for m in await self._available_metric_ids(job_id, vertex_id)
             if m.endswith("currentInputWatermark")
         ]
         if not metric_ids:
             return {}
-        resp = self._http.get(
+        resp = await self._http.get(
             f"{self._base_url}/jobs/{job_id}/vertices/{vertex_id}/metrics",
             params={"get": ",".join(metric_ids)},
         )
@@ -117,23 +122,23 @@ class LiveFlinkGateway:
             result[int(subtask_str)] = max(0.0, now_ms - watermark_ms)
         return result
 
-    def task_manager_disk_metrics(self, job_id: str, vertex_id: str) -> dict[str, float]:
+    async def task_manager_disk_metrics(self, job_id: str, vertex_id: str) -> dict[str, float]:
         metric_ids = [
             m
-            for m in self._available_metric_ids(job_id, vertex_id)
+            for m in await self._available_metric_ids(job_id, vertex_id)
             if "disk" in m.lower() or "rocksdb" in m.lower()
         ]
         if not metric_ids:
             return {}
-        resp = self._http.get(
+        resp = await self._http.get(
             f"{self._base_url}/jobs/{job_id}/vertices/{vertex_id}/metrics",
             params={"get": ",".join(metric_ids)},
         )
         resp.raise_for_status()
         return {entry["id"]: float(entry["value"]) for entry in resp.json()}
 
-    def job_exceptions(self, job_id: str, window_minutes: int) -> list[dict[str, Any]]:
-        resp = self._http.get(f"{self._base_url}/jobs/{job_id}/exceptions")
+    async def job_exceptions(self, job_id: str, window_minutes: int) -> list[dict[str, Any]]:
+        resp = await self._http.get(f"{self._base_url}/jobs/{job_id}/exceptions")
         resp.raise_for_status()
         data = resp.json()
         now_ms = time.time() * 1000

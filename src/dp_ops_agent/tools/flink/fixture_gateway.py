@@ -38,17 +38,17 @@ class FixtureFlinkGateway:
     def __init__(self, snapshot_path: str | Path) -> None:
         self._data: dict[str, Any] = json.loads(Path(snapshot_path).read_text())
 
-    def list_jobs(self) -> list[NamedId]:
+    async def list_jobs(self) -> list[NamedId]:
         job_ids = sorted({j for s in _JOB_SECTIONS for j in self._data.get(s, {})})
         return [NamedId(id=j, name=j) for j in job_ids]
 
-    def list_vertices(self, job_id: str) -> list[NamedId]:
+    async def list_vertices(self, job_id: str) -> list[NamedId]:
         vertex_ids = sorted(
             {v for s in _VERTEX_SECTIONS for v in self._data.get(s, {}).get(job_id, {})}
         )
         return [NamedId(id=v, name=v) for v in vertex_ids]
 
-    def checkpoint_history(self, job_id: str) -> CheckpointHistoryView:
+    async def checkpoint_history(self, job_id: str) -> CheckpointHistoryView:
         raw = self._data.get("checkpoint_history", {}).get(
             job_id,
             {
@@ -67,7 +67,7 @@ class FixtureFlinkGateway:
             history=raw.get("history", []),
         )
 
-    def backpressure(self, job_id: str, vertex_id: str) -> BackpressureView:
+    async def backpressure(self, job_id: str, vertex_id: str) -> BackpressureView:
         raw = (
             self._data.get("backpressure", {})
             .get(job_id, {})
@@ -77,13 +77,13 @@ class FixtureFlinkGateway:
         )
         return BackpressureView(**raw)
 
-    def watermark_lag(self, job_id: str, vertex_id: str) -> dict[int, float]:
+    async def watermark_lag(self, job_id: str, vertex_id: str) -> dict[int, float]:
         raw = self._data.get("watermark_lag", {}).get(job_id, {}).get(vertex_id, {})
         return {int(k): float(v) for k, v in raw.items()}
 
-    def task_manager_disk_metrics(self, job_id: str, vertex_id: str) -> dict[str, float]:
+    async def task_manager_disk_metrics(self, job_id: str, vertex_id: str) -> dict[str, float]:
         raw = self._data.get("task_manager_disk_metrics", {}).get(job_id, {}).get(vertex_id, {})
         return {k: float(v) for k, v in raw.items()}
 
-    def job_exceptions(self, job_id: str, window_minutes: int) -> list[dict[str, Any]]:
+    async def job_exceptions(self, job_id: str, window_minutes: int) -> list[dict[str, Any]]:
         return self._data.get("job_exceptions", {}).get(job_id, [])

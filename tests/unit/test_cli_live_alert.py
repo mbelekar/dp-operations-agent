@@ -158,20 +158,25 @@ def _live_args(tmp_path):
     return ["diagnose", "--live", "--alert-text", "alert", "--log-dir", str(tmp_path)]
 
 
-def _spy_on_lineage_close(monkeypatch) -> list[bool]:
-    """Records, for each LiveLineageGateway the CLI builds, whether its HTTP
-    client was closed once the diagnosis finished."""
+def _spy_on_gateway_closes(monkeypatch) -> list:
+    """Collects every HTTP-backed live gateway the CLI builds, so a test can
+    check each one's client was closed once the diagnosis finished."""
     from dp_ops_agent import cli
+    from dp_ops_agent.tools.flink.live_gateway import LiveFlinkGateway
     from dp_ops_agent.tools.lineage.live_gateway import LiveLineageGateway
 
-    built: list[LiveLineageGateway] = []
+    built: list = []
 
-    class _Recording(LiveLineageGateway):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            built.append(self)
+    def recording(gateway_class):
+        class _Recording(gateway_class):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                built.append(self)
 
-    monkeypatch.setattr(cli, "LiveLineageGateway", _Recording)
+        return _Recording
+
+    monkeypatch.setattr(cli, "LiveLineageGateway", recording(LiveLineageGateway))
+    monkeypatch.setattr(cli, "LiveFlinkGateway", recording(LiveFlinkGateway))
     # No broker in unit tests: don't let librdkafka start connecting.
     monkeypatch.setattr(cli, "LiveKafkaGateway", lambda **kwargs: object())
     return built
@@ -179,13 +184,16 @@ def _spy_on_lineage_close(monkeypatch) -> list[bool]:
 
 def test_live_diagnosis_closes_the_gateways_http_clients(tmp_path, monkeypatch):
     _stub_run(monkeypatch, None)
-    built = _spy_on_lineage_close(monkeypatch)
+    built = _spy_on_gateway_closes(monkeypatch)
 
     result = CliRunner().invoke(app, _live_args(tmp_path))
 
     assert result.exit_code == 0, result.output
-    [gateway] = built
-    assert gateway._http.is_closed
+    assert {type(g).__mro__[1].__name__ for g in built} == {
+        "LiveLineageGateway",
+        "LiveFlinkGateway",
+    }
+    assert all(g._http.is_closed for g in built)
 
 
 @pytest.mark.parametrize("error", ["not_submitted", "unexpected"])
@@ -199,10 +207,10 @@ def test_live_diagnosis_closes_the_http_clients_when_it_fails(tmp_path, monkeypa
         raise RuntimeError("bug")
 
     monkeypatch.setattr(cli, "run_diagnosis", failing_run_diagnosis)
-    built = _spy_on_lineage_close(monkeypatch)
+    built = _spy_on_gateway_closes(monkeypatch)
 
     result = CliRunner().invoke(app, _live_args(tmp_path))
 
     assert result.exit_code != 0
-    [gateway] = built
-    assert gateway._http.is_closed
+    assert len(built) == 2
+    assert all(g._http.is_closed for g in built)

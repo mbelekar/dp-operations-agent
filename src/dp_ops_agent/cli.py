@@ -25,7 +25,6 @@ from dp_ops_agent.tools.dbt.fixture_gateway import FixtureDbtGateway
 from dp_ops_agent.tools.dbt.gateway import DbtArtifactsGateway
 from dp_ops_agent.tools.dbt.live_gateway import LiveDbtGateway
 from dp_ops_agent.tools.flink.fixture_gateway import FixtureFlinkGateway
-from dp_ops_agent.tools.flink.gateway import FlinkMetricsGateway
 from dp_ops_agent.tools.flink.live_gateway import LiveFlinkGateway
 from dp_ops_agent.tools.kafka.fixture_gateway import FixtureKafkaGateway
 from dp_ops_agent.tools.kafka.gateway import KafkaMetricsGateway
@@ -238,7 +237,8 @@ async def _run_live(
             jmx_exporter_base_url=kafka_jmx_url,
             schema_registry_url=schema_registry_url,
         )
-        flink_gateway: FlinkMetricsGateway = LiveFlinkGateway(flink_rest_url)
+        flink = LiveFlinkGateway(flink_rest_url)
+        stack.push_async_callback(flink.aclose)
         lineage = LiveLineageGateway(marquez_url)
         stack.push_async_callback(lineage.aclose)
         dbt_gateway: DbtArtifactsGateway = LiveDbtGateway(dbt_target_dir, dbt_state_dir)
@@ -246,7 +246,7 @@ async def _run_live(
             session_id=session_id,
             alert_text=alert_text,
             kafka_gateway=kafka_gateway,
-            flink_gateway=flink_gateway,
+            flink_gateway=flink,
             lineage_gateway=lineage,
             dbt_gateway=dbt_gateway,
             audit=audit,

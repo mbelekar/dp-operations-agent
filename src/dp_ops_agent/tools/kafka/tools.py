@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from langchain_core.tools import BaseTool, tool
@@ -23,7 +23,7 @@ def _record_signal(
     audit.append(
         AuditEvent(
             event_type="signal_collected",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             session_id=session_id,
             actor="tool",
             payload=signal.model_dump(mode="json"),
@@ -54,7 +54,7 @@ def build_kafka_tools(
         """Report under-replicated/offline partitions for the given topics in the
         incident window. Signals a broker failure, disk pressure, or network
         partition."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         meta = gateway.cluster_metadata(topics)
         partitions = [
             {
@@ -103,7 +103,7 @@ def build_kafka_tools(
         window. High churn signals a flaky broker, GC pauses, or network
         instability. broker_id: the brokers hosting a topic are the numbers
         in under_replicated_partitions' replicas lists; check each one."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         metrics = gateway.broker_jmx_metrics(
             broker_id, ["IsrShrinksPerSec", "IsrExpandsPerSec"], window_minutes
         )
@@ -149,7 +149,7 @@ def build_kafka_tools(
         partition for a consumer group/topic pair. Growing lag means processing
         can't keep up; flat-high means a stuck consumer; a sudden spike means an
         upstream burst."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         offsets = gateway.consumer_group_offsets(group)
         watermarks = gateway.topic_high_watermarks(topic)
         # A partition with no committed offset has no measurable lag; treating
@@ -206,7 +206,7 @@ def build_kafka_tools(
         """Report consumer group state transitions over the window to detect
         rebalance storms. Frequent rebalancing signals a session-timeout
         misconfig, a slow poll loop, or a crash-looping consumer."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         history = gateway.consumer_group_state_history(group, window_minutes)
         rebalance_states = {"PreparingRebalance", "CompletingRebalance"}
         rebalance_count = sum(1 for h in history if h.get("state") in rebalance_states)
@@ -244,7 +244,7 @@ def build_kafka_tools(
         """Report per-partition throughput to detect hot-partition/key skew.
         High skew signals a poor partition key choice or a single noisy
         producer."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         throughput = gateway.partition_throughput(topic, window_minutes)
         values = list(throughput.values())
         avg = sum(values) / len(values) if values else 0.0
@@ -286,7 +286,7 @@ def build_kafka_tools(
         """Check whether a schema-registry subject's latest version has a
         compatibility failure. A failure signals a producer shipped an
         incompatible schema change."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         result = gateway.schema_registry_subject(subject)
         observed = {"raw": result}
         if not result or "is_compatible" not in result:

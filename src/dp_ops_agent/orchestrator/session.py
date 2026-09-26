@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
+from langchain.agents import create_agent
 from langchain_anthropic import ChatAnthropic
 from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
-from langchain.agents import create_agent
 from langchain_core.messages import AIMessage
 from langgraph.errors import GraphRecursionError
 from pydantic import BaseModel
@@ -89,7 +89,7 @@ async def run_diagnosis(
     audit.append(
         AuditEvent(
             event_type="diagnosis_run_started",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             session_id=session_id,
             actor="orchestrator",
             payload={"alert_text": alert_text, "model": model},
@@ -151,7 +151,7 @@ async def run_diagnosis(
     audit.append(
         AuditEvent(
             event_type="session_usage",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             session_id=session_id,
             actor="orchestrator",
             payload=usage.model_dump(),

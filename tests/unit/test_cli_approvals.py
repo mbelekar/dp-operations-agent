@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from typer.testing import CliRunner
 
@@ -19,7 +19,7 @@ def _write(tmp_path, proposal: Proposal | None = None) -> Proposal:
     proposal = proposal or _build_proposal(_ProposalInput(action=_REPLAY, expected_outcome="catch up"))
     JsonlAuditSink(tmp_path, "s1").append(
         AuditEvent(
-            event_type="proposal_created", timestamp=datetime.now(timezone.utc), session_id="s1",
+            event_type="proposal_created", timestamp=datetime.now(UTC), session_id="s1",
             actor="orchestrator", proposal_id=proposal.proposal_id, tier=proposal.tier,
             payload=proposal.model_dump(mode="json"),
         )

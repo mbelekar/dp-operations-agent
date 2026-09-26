@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
@@ -8,7 +8,7 @@ from dp_ops_agent.tools.diagnosis_output.tools import _derive_system
 
 
 def _make_signal(**overrides) -> Signal:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     defaults = dict(
         tool="kafka.under_replicated_partitions",
         signal_type="under_replicated_partitions",
@@ -41,7 +41,7 @@ def test_diagnosis_accepts_evidence_chain_grounded_in_collected_signals():
             EvidenceChainEntry(step=1, signal_id=signal.signal_id, interpretation="URP detected")
         ],
         signals=[signal],
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
         model="claude-sonnet-5",
     )
     assert diagnosis.tier == 0
@@ -58,7 +58,7 @@ def test_diagnosis_rejects_empty_evidence_chain_and_signals():
             confidence="low",
             evidence_chain=[],
             signals=[],
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             model="claude-sonnet-5",
         )
 
@@ -76,7 +76,7 @@ def test_diagnosis_rejects_evidence_chain_citing_unknown_signal_id():
                 EvidenceChainEntry(step=1, signal_id="not-a-real-signal-id", interpretation="x")
             ],
             signals=[signal],
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             model="claude-sonnet-5",
         )
 
@@ -95,7 +95,7 @@ def test_diagnosis_rejects_root_cause_signal_id_not_cited_in_evidence_chain():
                 EvidenceChainEntry(step=1, signal_id=cited_signal.signal_id, interpretation="x"),
             ],
             signals=[cited_signal, uncited_signal],
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             model="claude-sonnet-5",
         )
 
@@ -122,7 +122,7 @@ def test_diagnosis_accepts_dbt_root_cause(signal_type):
             EvidenceChainEntry(step=1, signal_id=signal.signal_id, interpretation="dbt signal")
         ],
         signals=[signal],
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
         model="claude-sonnet-5",
     )
     assert diagnosis.system == "dbt"
@@ -140,7 +140,7 @@ def _diagnosis(root: Signal, signals: list[Signal]) -> Diagnosis:
             for i, s in enumerate(signals, start=1)
         ],
         signals=signals,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
         model="claude-sonnet-5",
     )
 
@@ -193,7 +193,7 @@ def _with_proposal(root_fields: dict, action, tier: int = 1, extra_signals=()) -
         signals=signals,
         tier=tier,
         proposal=Proposal(tier=tier, action=action, expected_outcome="recovers"),
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
         model="claude-sonnet-5",
     )
 

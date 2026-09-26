@@ -16,7 +16,7 @@ tracing a dbt symptom upstream never depends on the model building an id.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from langchain_core.tools import BaseTool, tool
@@ -55,7 +55,7 @@ def _record_signal(
     audit.append(
         AuditEvent(
             event_type="signal_collected",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             session_id=session_id,
             actor="tool",
             payload=signal.model_dump(mode="json"),
@@ -121,7 +121,7 @@ def build_dbt_tools(
         severity: Severity,
         raw_source_ref: str,
     ) -> str:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         signal = Signal(
             tool=f"dbt.{name}",
             signal_type=name,

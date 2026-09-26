@@ -1,11 +1,11 @@
 """Offline guard for evals/scenarios.py: ./auto/eval is billed, so a
 mistyped fixture path shouldn't first surface there."""
 
-from evals.scenarios import SCENARIOS
 from dp_ops_agent.tools.dbt.fixture_gateway import FixtureDbtGateway
 from dp_ops_agent.tools.flink.fixture_gateway import FixtureFlinkGateway
 from dp_ops_agent.tools.kafka.fixture_gateway import FixtureKafkaGateway
 from dp_ops_agent.tools.lineage.fixture_gateway import FixtureLineageGateway
+from evals.scenarios import SCENARIOS
 
 
 def test_every_scenario_fixture_loads():

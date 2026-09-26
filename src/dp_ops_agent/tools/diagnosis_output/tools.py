@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 from langchain_core.tools import BaseTool, tool
@@ -144,7 +144,7 @@ def build_diagnosis_output_tools(
                 signals=list(collected_signals),
                 tier=built_proposal.tier if built_proposal else 0,
                 proposal=built_proposal,
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
                 model=model_name,
             )
         except ValidationError as exc:
@@ -157,7 +157,7 @@ def build_diagnosis_output_tools(
         audit.append(
             AuditEvent(
                 event_type="diagnosis_completed",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 session_id=session_id,
                 actor="orchestrator",
                 diagnosis_id=diagnosis.diagnosis_id,
@@ -170,7 +170,7 @@ def build_diagnosis_output_tools(
         audit.append(
             AuditEvent(
                 event_type="proposal_created",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 session_id=session_id,
                 actor="orchestrator",
                 diagnosis_id=diagnosis.diagnosis_id,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from langchain_core.tools import BaseTool, tool
 
@@ -20,7 +20,7 @@ def _record_signal(
     audit.append(
         AuditEvent(
             event_type="signal_collected",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             session_id=session_id,
             actor="tool",
             payload=signal.model_dump(mode="json"),
@@ -47,7 +47,7 @@ def build_lineage_tools(
         this before concluding a diagnosis when the alert's system might not
         be where the root cause actually lives, then investigate whatever
         upstream system this returns using that system's own tools."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         view = gateway.upstream_lineage(node_id)
         upstream_nodes = [
             {"id": n.id, "type": n.type} for n in view.nodes

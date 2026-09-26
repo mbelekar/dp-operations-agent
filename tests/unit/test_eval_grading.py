@@ -2,7 +2,7 @@
 diagnoses (no model calls)."""
 
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from dp_ops_agent.evidence.schema import Diagnosis, EvidenceChainEntry, Signal
 from dp_ops_agent.tools.diagnosis_output.tools import _build_proposal, _ProposalInput
@@ -13,7 +13,7 @@ _BY_NAME = {s.name: s for s in SCENARIOS}
 
 
 def _diagnosis(signal_type: str, tool: str, scope: dict, action: dict | None) -> Diagnosis:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     signal = Signal(
         tool=tool, signal_type=signal_type, collected_at=now, window_start=now,
         window_end=now, scope=scope, observed={}, severity="critical",

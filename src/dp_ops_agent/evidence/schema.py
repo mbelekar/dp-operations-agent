@@ -85,7 +85,7 @@ class ReplayKafkaOffsets(BaseModel):
     to_offset: int
 
     @model_validator(mode="after")
-    def is_narrow(self) -> "ReplayKafkaOffsets":
+    def is_narrow(self) -> ReplayKafkaOffsets:
         if self.to_offset <= self.from_offset:
             raise ValueError("to_offset must be greater than from_offset")
         if self.to_offset - self.from_offset > MAX_TIER1_REPLAY_OFFSETS:
@@ -126,7 +126,7 @@ def _action_targets(action: ProposedAction) -> list[tuple[str, str]]:
     return [("group", action.group), ("topic", action.topic)]
 
 
-def _scope_values(signal: "Signal", key: str) -> set[str]:
+def _scope_values(signal: Signal, key: str) -> set[str]:
     values = {signal.scope[key]} if key in signal.scope else set()
     if key == "topic" and "topics" in signal.scope:  # under_replicated_partitions
         values |= set(signal.scope["topics"].split(","))
@@ -175,7 +175,7 @@ class Diagnosis(BaseModel):
     model: str
 
     @model_validator(mode="after")
-    def evidence_chain_is_grounded(self) -> "Diagnosis":
+    def evidence_chain_is_grounded(self) -> Diagnosis:
         if not self.signals or not self.evidence_chain:
             raise ValueError(
                 "a diagnosis must cite at least one collected signal; "

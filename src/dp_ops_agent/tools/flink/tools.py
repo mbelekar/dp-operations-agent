@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from langchain_core.tools import BaseTool, tool
 
@@ -24,7 +24,7 @@ def _record_signal(
     audit.append(
         AuditEvent(
             event_type="signal_collected",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             session_id=session_id,
             actor="tool",
             payload=signal.model_dump(mode="json"),
@@ -81,7 +81,7 @@ def build_flink_tools(
     async def checkpoint_failure(job_id: str) -> str:
         """Report checkpoint failure history for a Flink job. Signals growing
         state size, a slow sink, or backpressure upstream of the barrier."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         view = gateway.checkpoint_history(job_id)
         most_recent_failed = bool(view.history) and view.history[-1].status == "FAILED"
         critical = most_recent_failed or view.counts.failed >= 3
@@ -121,7 +121,7 @@ def build_flink_tools(
         """Report backpressure level for a specific Flink job vertex
         (operator). Localizes the actual bottleneck operator rather than
         just indicating "the job is slow"."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         view = gateway.backpressure(job_id, vertex_id)
         level = view.backpressure_level.lower()
         observed = {
@@ -152,7 +152,7 @@ def build_flink_tools(
         """Report event-time watermark lag per subtask for a Flink job
         vertex. Signals event-time skew, often caused by a stalled upstream
         Kafka partition."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         lag_by_subtask = gateway.watermark_lag(job_id, vertex_id)
         max_lag_ms = max(lag_by_subtask.values(), default=0.0)
         observed = {
@@ -184,7 +184,7 @@ def build_flink_tools(
         """Report state backend (RocksDB/TaskManager) disk pressure for a
         Flink job vertex. Signals state growth from a skewed key, missing
         TTL, or an unbounded window."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         metrics = gateway.task_manager_disk_metrics(job_id, vertex_id)
         disk_used_ratio = metrics.get("disk_used_ratio")
         observed = {"metrics": metrics}
@@ -216,7 +216,7 @@ def build_flink_tools(
         state-schema restore failure. Signals an incompatible state schema
         after a job graph or operator UID change. Heuristic: inferred from
         exception text, since Flink has no dedicated REST field for this."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         exceptions = gateway.job_exceptions(job_id, window_minutes)
         matches = [
             e for e in exceptions

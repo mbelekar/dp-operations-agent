@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -15,7 +15,7 @@ from dp_ops_agent.audit.models import AuditEvent
 from dp_ops_agent.evidence.schema import Proposal, ReplayKafkaOffsets
 from dp_ops_agent.tools.diagnosis_output.tools import _build_proposal, _ProposalInput
 
-NOW = datetime(2026, 9, 25, 9, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 9, 25, 9, 0, tzinfo=UTC)
 _REPLAY = {
     "action_type": "replay_kafka_offsets", "group": "billing-svc", "topic": "orders",
     "partition": 1, "from_offset": 100, "to_offset": 500,

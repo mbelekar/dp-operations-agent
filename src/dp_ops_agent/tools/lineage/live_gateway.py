@@ -30,7 +30,6 @@ import httpx
 
 from dp_ops_agent.tools.lineage.gateway import LineageEdge, LineageGraphView, LineageNode
 
-
 _UNKNOWN_NODE_MESSAGE_RE = re.compile(r"^(Job|Dataset) '.*' not found\.$")
 
 

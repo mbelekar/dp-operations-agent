@@ -44,7 +44,9 @@ class Handler(BaseHTTPRequestHandler):
         for url, future in futures:
             try:
                 chunks.append(future.result())
-            except Exception as exc:
+            # Any upstream failure (URLError, timeout, http.client's
+            # IncompleteRead, which isn't an OSError) must become a 502.
+            except Exception as exc:  # noqa: BLE001
                 errors.append(f"{url}: {exc!r}")
         if errors:
             self._send(502, "upstream scrape failed:\n" + "\n".join(errors) + "\n")

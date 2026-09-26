@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -118,11 +118,11 @@ def diagnose(
         help="Live mode only: Marquez base URL",
     ),
     dbt_target_dir: Path = typer.Option(
-        Path(os.environ.get("DBT_TARGET_DIR", "target")),
+        Path(os.environ.get("DBT_TARGET_DIR", "target")),  # noqa: B008 (env default, like the options above)
         help="Live mode only: dbt target/ directory with the latest run's artifacts",
     ),
     dbt_state_dir: Path | None = typer.Option(
-        os.environ.get("DBT_STATE_DIR"),
+        os.environ.get("DBT_STATE_DIR"),  # noqa: B008 (env default, like the options above)
         help="Live mode only: directory with the previous run's dbt artifacts (dbt --state)",
     ),
     kafka_topics: str | None = typer.Option(
@@ -252,7 +252,7 @@ def _decide(record: ProposalRecord, decision: str, reviewer: str, reason: str | 
     _echo_proposal(record.proposal)
     try:
         return record_decision(
-            record, decision, reviewer=reviewer, now=datetime.now(timezone.utc),
+            record, decision, reviewer=reviewer, now=datetime.now(UTC),
             reason=reason, expires_in=expires_in,
         )
     except ValueError as exc:

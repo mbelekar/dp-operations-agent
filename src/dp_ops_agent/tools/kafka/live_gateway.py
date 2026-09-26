@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import re
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -108,7 +108,7 @@ class LiveKafkaGateway:
         # Point-in-time scrape of the Prometheus exporter; window_minutes is
         # accepted for interface parity with a future time-series backend.
         metrics_text = self._scrape_metrics()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         result: dict[str, list[MetricSample]] = {name: [] for name in metric_names}
         for line in metrics_text.splitlines():
             match = _PROMETHEUS_LINE_RE.match(line)
@@ -176,7 +176,7 @@ class LiveKafkaGateway:
     ) -> list[dict[str, Any]]:
         desc = self._admin.describe_consumer_groups([group])
         result = desc[group].result(timeout=10.0)
-        return [{"ts": datetime.now(timezone.utc).isoformat(), "state": str(result.state)}]
+        return [{"ts": datetime.now(UTC).isoformat(), "state": str(result.state)}]
 
     def partition_throughput(self, topic: str, window_minutes: int) -> dict[int, float]:
         metrics_text = self._scrape_metrics()

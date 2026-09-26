@@ -15,7 +15,7 @@ grounding validator won't let the model cite it as evidence.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 from confluent_kafka import KafkaException
@@ -53,7 +53,7 @@ def build_tool_error_middleware(audit: AuditSink, session_id: str) -> ToolErrorM
         audit.append(
             AuditEvent(
                 event_type="tool_error",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 session_id=session_id,
                 actor="tool",
                 payload={"tool": tool_name, "error_type": error_type, "message": str(exc)},

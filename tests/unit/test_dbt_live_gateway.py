@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -158,7 +158,7 @@ def test_run_results_keep_status_failures_and_skips(tmp_path):
     view = _gateway(tmp_path, run_results=RUN_RESULTS).run_results("current")
 
     assert view.invocation == "build"
-    assert view.generated_at == datetime(2026, 9, 24, 0, 8, 43, 181038, tzinfo=timezone.utc)
+    assert view.generated_at == datetime(2026, 9, 24, 0, 8, 43, 181038, tzinfo=UTC)
     test = view.results["test.shop.not_null_stg_orders_order_id.81cfe2fe64"]
     assert (test.status, test.failures) == ("fail", 10)
     assert test.message == "Got 10 results, configured to fail if != 0"
@@ -238,7 +238,7 @@ def test_source_freshness_results(tmp_path):
     result = view.results["source.shop.raw.orders_sink"]
     assert result.status == "error"
     assert result.age_seconds == pytest.approx(18026.843236)
-    assert result.max_loaded_at == datetime(2026, 9, 23, 19, 8, 9, 905258, tzinfo=timezone.utc)
+    assert result.max_loaded_at == datetime(2026, 9, 23, 19, 8, 9, 905258, tzinfo=UTC)
     assert result.criteria["error_after"] == {"count": 2, "period": "hour"}
 
 

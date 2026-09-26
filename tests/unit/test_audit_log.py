@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
 from dp_ops_agent.audit.models import AuditEvent
@@ -7,7 +7,7 @@ from dp_ops_agent.audit.models import AuditEvent
 def _event(**overrides) -> AuditEvent:
     defaults = dict(
         event_type="diagnosis_run_started",
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         session_id="s1",
         actor="orchestrator",
         payload={},

@@ -22,6 +22,7 @@ dev = [
     "pytest>=9.1.1,<10",
     "pytest-asyncio>=1.4.0,<2",
     "freezegun>=1.5.5,<2",
+    "ruff>=0.16.9,<1",
 ]
 
 [project.scripts]
@@ -47,3 +48,17 @@ addopts = "-m 'not llm' --basetemp=tests/tmp"
 filterwarnings = [
     "ignore:AnthropicPromptCachingMiddleware caching middleware only supports Anthropic models:UserWarning",
 ]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["tests/tmp"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "BLE"]
+# Line length is the formatter's job; long strings it can't split stay as-is.
+ignore = ["E501"]
+
+[tool.ruff.lint.flake8-bugbear]
+# typer declares CLI options as call defaults; that's its idiom, not a bug.
+extend-immutable-calls = ["typer.Option", "typer.Argument"]

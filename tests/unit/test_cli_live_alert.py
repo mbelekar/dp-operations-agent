@@ -1,3 +1,4 @@
+from datetime import UTC
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -69,14 +70,14 @@ def _fixture_args(tmp_path):
 
 
 def _stub_run(monkeypatch, proposal_input):
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from dp_ops_agent import cli
     from dp_ops_agent.evidence.schema import Diagnosis, EvidenceChainEntry, Signal
     from dp_ops_agent.orchestrator.session import DiagnosisRunResult, TokenUsage
     from dp_ops_agent.tools.diagnosis_output.tools import _build_proposal
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     signal = Signal(
         tool="flink.checkpoint_failure", signal_type="checkpoint_failure", collected_at=now,
         window_start=now, window_end=now, scope={"job_id": "orders-processing-job"},

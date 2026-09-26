@@ -181,13 +181,13 @@ def build_dbt_tools(
         its logic: trace upstream from scope.lineage_node_id. A null
         previously_passed or model_code_changed means there is no previous
         run to compare against."""
-        manifest = _current(gateway.manifest("current"), "manifest")
+        manifest = _current(await gateway.manifest("current"), "manifest")
         node = _find_model(manifest, model)
         if node is None:
             return _model_not_found(TestFailureSignal, model, manifest)
-        run_results = _current(gateway.run_results("current"), "run_results")
-        state_manifest = gateway.manifest("state")
-        state_run_results = gateway.run_results("state")
+        run_results = _current(await gateway.run_results("current"), "run_results")
+        state_manifest = await gateway.manifest("state")
+        state_run_results = await gateway.run_results("state")
 
         tests = [
             n
@@ -272,11 +272,11 @@ def build_dbt_tools(
         error on unchanged code points at a schema change, broken ref, or
         warehouse limit rather than the model's own SQL. A skipped model
         didn't run because something it depends on failed first."""
-        manifest = _current(gateway.manifest("current"), "manifest")
+        manifest = _current(await gateway.manifest("current"), "manifest")
         node = _find_model(manifest, model)
         if node is None:
             return _model_not_found(ModelRunFailureSignal, model, manifest)
-        run_results = _current(gateway.run_results("current"), "run_results")
+        run_results = _current(await gateway.run_results("current"), "run_results")
         result = run_results.results.get(node.unique_id)
         status = result.status if result is not None else "not_run"
 
@@ -303,8 +303,8 @@ def build_dbt_tools(
                     ),
                     status=status,
                     message=result.message if result is not None else None,
-                    previous_status=_status(gateway.run_results("state"), node.unique_id),
-                    model_code_changed=_code_changed(node, gateway.manifest("state")),
+                    previous_status=_status(await gateway.run_results("state"), node.unique_id),
+                    model_code_changed=_code_changed(node, await gateway.manifest("state")),
                     artifacts_generated_at=_generated_at(
                         run_results=run_results, manifest=manifest
                     ),
@@ -320,7 +320,7 @@ def build_dbt_tools(
         "source_name.table_name" (e.g. "raw.orders_sink"). A stale source is
         almost always an upstream problem: the loader or streaming sink
         stopped landing data. Trace upstream from scope.lineage_node_id."""
-        manifest = _current(gateway.manifest("current"), "manifest")
+        manifest = _current(await gateway.manifest("current"), "manifest")
         node = next(
             (
                 n
@@ -351,7 +351,7 @@ def build_dbt_tools(
                     raw_source_ref="dbt:target/manifest.json",
                 )
             )
-        freshness = _current(gateway.source_freshness("current"), "source_freshness")
+        freshness = _current(await gateway.source_freshness("current"), "source_freshness")
         result = freshness.results.get(node.unique_id)
         status = result.status if result is not None else "not_checked"
 
@@ -396,12 +396,12 @@ def build_dbt_tools(
         some adapters don't report rows_affected, and runs of different
         kinds (e.g. the initial full build vs. an incremental insert) are
         reported as not comparable."""
-        manifest = _current(gateway.manifest("current"), "manifest")
+        manifest = _current(await gateway.manifest("current"), "manifest")
         node = _find_model(manifest, model)
         if node is None:
             return _model_not_found(IncrementalModelDriftSignal, model, manifest)
-        run_results = _current(gateway.run_results("current"), "run_results")
-        state_run_results = gateway.run_results("state")
+        run_results = _current(await gateway.run_results("current"), "run_results")
+        state_run_results = await gateway.run_results("state")
         current = run_results.results.get(node.unique_id)
         previous = (
             state_run_results.results.get(node.unique_id) if state_run_results is not None else None
@@ -474,13 +474,13 @@ def build_dbt_tools(
         while the model's own code did not, followed by the model failing,
         means the upstream table changed without a matching model update.
         catalog.json only exists if `dbt docs generate` ran."""
-        manifest = _current(gateway.manifest("current"), "manifest")
+        manifest = _current(await gateway.manifest("current"), "manifest")
         node = _find_model(manifest, model)
         if node is None:
             return _model_not_found(DependencyGraphCompileErrorSignal, model, manifest)
-        run_results = _current(gateway.run_results("current"), "run_results")
-        catalog = gateway.catalog("current")
-        state_catalog = gateway.catalog("state")
+        run_results = _current(await gateway.run_results("current"), "run_results")
+        catalog = await gateway.catalog("current")
+        state_catalog = await gateway.catalog("state")
         model_status = _status(run_results, node.unique_id)
         catalog_available = catalog is not None and state_catalog is not None
 
@@ -538,7 +538,7 @@ def build_dbt_tools(
                 observed=DependencyGraphCompileErrorObserved(
                     no_data_reason=no_data_reason,
                     model_status=model_status,
-                    model_code_changed=_code_changed(node, gateway.manifest("state")),
+                    model_code_changed=_code_changed(node, await gateway.manifest("state")),
                     catalog_available=catalog_available,
                     changed_parents=changed_parents,
                     parents_not_in_catalog=not_in_catalog,

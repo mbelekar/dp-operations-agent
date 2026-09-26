@@ -34,21 +34,23 @@ def _gateway(tmp_path, snapshot=SNAPSHOT) -> FixtureDbtGateway:
     return FixtureDbtGateway(path)
 
 
-def test_loads_views_for_each_run(tmp_path):
+async def test_loads_views_for_each_run(tmp_path):
     gateway = _gateway(tmp_path)
 
-    assert gateway.run_results("current").results["model.shop.stg_orders"].status == "success"
-    assert gateway.manifest("current").nodes["model.shop.stg_orders"].checksum == "abc"
-    assert gateway.run_results("state").results == {}
+    assert (await gateway.run_results("current")).results[
+        "model.shop.stg_orders"
+    ].status == "success"
+    assert (await gateway.manifest("current")).nodes["model.shop.stg_orders"].checksum == "abc"
+    assert (await gateway.run_results("state")).results == {}
 
 
-def test_missing_current_artifact_is_unavailable(tmp_path):
+async def test_missing_current_artifact_is_unavailable(tmp_path):
     with pytest.raises(DbtArtifactsUnavailable, match="sources"):
-        _gateway(tmp_path).source_freshness("current")
+        await _gateway(tmp_path).source_freshness("current")
 
 
-def test_missing_state_artifact_and_catalog_are_none(tmp_path):
+async def test_missing_state_artifact_and_catalog_are_none(tmp_path):
     gateway = _gateway(tmp_path)
 
-    assert gateway.manifest("state") is None
-    assert gateway.catalog("current") is None
+    assert await gateway.manifest("state") is None
+    assert await gateway.catalog("current") is None

@@ -14,6 +14,7 @@ directory before the next run to keep it as "the previous run".
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -40,17 +41,19 @@ class LiveDbtGateway:
             "state": Path(state_dir) if state_dir is not None else None,
         }
 
-    def _load(self, run: ArtifactRun, filename: str, required: bool) -> dict[str, Any] | None:
+    async def _load(self, run: ArtifactRun, filename: str, required: bool) -> dict[str, Any] | None:
         directory = self._dirs[run]
         path = directory / filename if directory is not None else None
         if path is None or not path.is_file():
             if required and run == "current":
                 raise DbtArtifactsUnavailable(f"{filename} not found in dbt target dir {directory}")
             return None
-        return json.loads(path.read_text())
+        # Off the event loop: manifest.json can be several MB to read and parse,
+        # and the tool node runs other tool calls concurrently.
+        return await asyncio.to_thread(lambda: json.loads(path.read_text()))
 
-    def run_results(self, run: ArtifactRun) -> RunResultsView | None:
-        raw = self._load(run, "run_results.json", required=True)
+    async def run_results(self, run: ArtifactRun) -> RunResultsView | None:
+        raw = await self._load(run, "run_results.json", required=True)
         if raw is None:
             return None
         which = raw.get("args", {}).get("which")
@@ -76,8 +79,8 @@ class LiveDbtGateway:
             generated_at=raw["metadata"].get("generated_at"), invocation=which, results=results
         )
 
-    def source_freshness(self, run: ArtifactRun) -> SourceFreshnessView | None:
-        raw = self._load(run, "sources.json", required=True)
+    async def source_freshness(self, run: ArtifactRun) -> SourceFreshnessView | None:
+        raw = await self._load(run, "sources.json", required=True)
         if raw is None:
             return None
         return SourceFreshnessView(
@@ -94,8 +97,8 @@ class LiveDbtGateway:
             },
         )
 
-    def manifest(self, run: ArtifactRun) -> ManifestView | None:
-        raw = self._load(run, "manifest.json", required=True)
+    async def manifest(self, run: ArtifactRun) -> ManifestView | None:
+        raw = await self._load(run, "manifest.json", required=True)
         if raw is None:
             return None
         nodes = {}
@@ -122,8 +125,8 @@ class LiveDbtGateway:
             )
         return ManifestView(generated_at=raw["metadata"].get("generated_at"), nodes=nodes)
 
-    def catalog(self, run: ArtifactRun) -> CatalogView | None:
-        raw = self._load(run, "catalog.json", required=False)
+    async def catalog(self, run: ArtifactRun) -> CatalogView | None:
+        raw = await self._load(run, "catalog.json", required=False)
         if raw is None:
             return None
         columns = {

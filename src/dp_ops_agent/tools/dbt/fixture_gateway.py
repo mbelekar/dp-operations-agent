@@ -48,14 +48,14 @@ class FixtureDbtGateway:
             return None
         return view(**raw)
 
-    def run_results(self, run: ArtifactRun) -> RunResultsView | None:
+    async def run_results(self, run: ArtifactRun) -> RunResultsView | None:
         return self._view(run, "run_results", RunResultsView)
 
-    def source_freshness(self, run: ArtifactRun) -> SourceFreshnessView | None:
+    async def source_freshness(self, run: ArtifactRun) -> SourceFreshnessView | None:
         return self._view(run, "sources", SourceFreshnessView)
 
-    def manifest(self, run: ArtifactRun) -> ManifestView | None:
+    async def manifest(self, run: ArtifactRun) -> ManifestView | None:
         return self._view(run, "manifest", ManifestView)
 
-    def catalog(self, run: ArtifactRun) -> CatalogView | None:
+    async def catalog(self, run: ArtifactRun) -> CatalogView | None:
         return self._view(run, "catalog", CatalogView, required=False)

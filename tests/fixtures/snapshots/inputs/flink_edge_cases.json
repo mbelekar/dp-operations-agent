@@ -1,0 +1,21 @@
+{
+  "checkpoint_history": {
+    "no-checkpoints-job": {
+      "counts": {"completed": 0, "failed": 0, "in_progress": 0, "restored": 0, "total": 0},
+      "history": []
+    }
+  },
+  "backpressure": {
+    "quiet-job": {"idle-vertex": {"status": "ok", "backpressure_level": "ok", "subtasks": []}}
+  },
+  "watermark_lag": {"quiet-job": {"idle-vertex": {}}},
+  "task_manager_disk_metrics": {"quiet-job": {"idle-vertex": {}}},
+  "job_exceptions": {
+    "restore-job": [
+      {
+        "timestamp": 1790000000000,
+        "exception": "java.lang.IllegalStateException: Failed to restore from savepoint: incompatible state schema"
+      }
+    ]
+  }
+}

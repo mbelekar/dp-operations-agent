@@ -1,0 +1,10 @@
+{
+  "cluster_metadata": {
+    "metadata-only": [{"topic": "metadata-only", "id": 0, "replicas": [1], "isr": [1], "leader": 1}]
+  },
+  "broker_jmx_metrics": {"2": {}},
+  "topic_high_watermarks": {"orders": {"0": 100, "1": 50}},
+  "consumer_group_offsets": {"no-history-group": {"0": 5}},
+  "consumer_group_state_history": {"idle-group": [{"ts": "2026-09-24T00:00:00Z", "state": "Stable"}]},
+  "schema_registry_subject": {"no-verdict-value": {"id": 3}}
+}

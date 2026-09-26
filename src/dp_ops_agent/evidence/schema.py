@@ -9,16 +9,18 @@ ApprovalRecord records a human's decision on a proposal (Phase 4, ADR-0011).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 from typing import Annotated, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, model_validator
 
+from dp_ops_agent.evidence.signals.base import Scope, SignalBase, SignalTargets
+
 # Severity and SignalType are defined with the signal envelope and
 # re-exported here, where the rest of the code imports them from.
 from dp_ops_agent.evidence.signals.base import Severity as Severity
-from dp_ops_agent.evidence.signals.base import SignalBase
 from dp_ops_agent.evidence.signals.base import SignalType as SignalType
 
 Tier = Literal[0, 1, 2]
@@ -94,22 +96,46 @@ def derive_tier(action: ProposedAction | None) -> Tier:
     return 0 if action is None else 1
 
 
-def _action_targets(action: ProposedAction) -> list[tuple[str, str]]:
-    """(scope key, value) pairs a collected signal must cover. A Kafka
-    replay's partition and offsets aren't in any signal's scope, so they're
-    bounded by MAX_TIER1_REPLAY_OFFSETS instead of grounded."""
+# Which of a signal's targets an action identifier must appear in.
+_TargetSet = Callable[[SignalTargets], frozenset[str]]
+
+
+def _action_targets(action: ProposedAction) -> list[tuple[str, str, _TargetSet]]:
+    """(label, value, where a covering signal lists it) for each identifier a
+    collected signal must cover. Typed attribute access, so renaming a scope
+    field breaks type-checking here rather than silently breaking grounding.
+    A Kafka replay's partition and offsets aren't in any signal's scope, so
+    they're bounded by MAX_TIER1_REPLAY_OFFSETS instead of grounded."""
     if isinstance(action, RestartFlinkJobFromCheckpoint):
-        return [("job_id", action.job_id)]
+        return [("job_id", action.job_id, lambda t: t.job_ids)]
     if isinstance(action, RerunDbtModel):
-        return [("model", action.model)]
-    return [("group", action.group), ("topic", action.topic)]
+        return [("model", action.model, lambda t: t.models)]
+    return [
+        ("group", action.group, lambda t: t.groups),
+        ("topic", action.topic, lambda t: t.topics),
+    ]
 
 
-def _scope_values(signal: Signal, key: str) -> set[str]:
-    values = {signal.scope[key]} if key in signal.scope else set()
-    if key == "topic" and "topics" in signal.scope:  # under_replicated_partitions
-        values |= set(signal.scope["topics"].split(","))
-    return values
+def _signal_targets(signal: Signal) -> SignalTargets:
+    if isinstance(signal.scope, Scope):
+        return signal.scope.targets()
+    return _dict_scope_targets(signal.scope)
+
+
+def _dict_scope_targets(scope: dict[str, str]) -> SignalTargets:
+    """Temporary, for tools not yet building typed scopes (removed once every
+    system has migrated; see docs/plans/typed-signal-payloads.md). Same
+    lookups _scope_values did on the old dict scopes."""
+
+    def one(key: str) -> frozenset[str]:
+        return frozenset({scope[key]}) if key in scope else frozenset()
+
+    topics = one("topic")
+    if "topics" in scope:  # under_replicated_partitions
+        topics |= frozenset(scope["topics"].split(","))
+    return SignalTargets(
+        job_ids=one("job_id"), models=one("model"), groups=one("group"), topics=topics
+    )
 
 
 class Proposal(BaseModel):
@@ -208,8 +234,9 @@ class Diagnosis(BaseModel):
                 f"system {self.system!r}; propose an action on the root cause's system, "
                 "or no action (Tier 0)"
             )
-        for key, value in _action_targets(action):
-            if not any(value in _scope_values(s, key) for s in self.signals):
+        covered = [_signal_targets(s) for s in self.signals]
+        for key, value, target_set in _action_targets(action):
+            if not any(value in target_set(t) for t in covered):
                 raise ValueError(
                     f"{action.action_type} targets {key} {value!r}, but no signal collected "
                     f"this session covered that {key}; act only on what was investigated"

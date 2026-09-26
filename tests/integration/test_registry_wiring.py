@@ -659,3 +659,85 @@ async def test_submit_diagnosis_rejects_a_lineage_root_cause_with_a_clear_messag
         "from the upstream system it points to."
     )
     assert "diagnosis" not in result_holder
+
+
+def _replay(group: str, topic: str) -> dict:
+    return {
+        "action": {
+            "action_type": "replay_kafka_offsets",
+            "group": group,
+            "topic": topic,
+            "partition": 7,
+            "from_offset": 100,
+            "to_offset": 200,
+        },
+        "expected_outcome": "the skipped range is reprocessed",
+    }
+
+
+async def _submit_kafka_replay(tools, root_signal_id: str, cited: list[str], proposal: dict):
+    return await tools["submit_diagnosis"].ainvoke(
+        {
+            "root_cause_hypothesis": "billing-svc fell behind on orders",
+            "root_cause_signal_id": root_signal_id,
+            "confidence": "medium",
+            "evidence_chain": [
+                {"step": i, "signal_id": sid, "interpretation": "x"}
+                for i, sid in enumerate(cited, start=1)
+            ],
+            "proposal": proposal,
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_kafka_replay_grounded_by_consumer_lag_is_recorded(tmp_path):
+    tools, result_holder = _build_tools(tmp_path, "wiring-kafka-replay")
+    lag = json.loads(
+        await tools["consumer_lag_trend"].ainvoke({"group": "billing-svc", "topic": "orders"})
+    )
+
+    result = await _submit_kafka_replay(
+        tools, lag["signal_id"], [lag["signal_id"]], _replay("billing-svc", "orders")
+    )
+
+    assert "rejected" not in result
+    assert result_holder["diagnosis"].proposal.tier == 1
+
+
+@pytest.mark.asyncio
+async def test_kafka_replay_grounded_across_group_and_topics_scopes_is_recorded(tmp_path):
+    """The group comes from one signal's scope, the topic from another's
+    comma-joined topics scope (under_replicated_partitions)."""
+    tools, result_holder = _build_tools(tmp_path, "wiring-kafka-replay-split")
+    rebalance = json.loads(
+        await tools["rebalance_frequency"].ainvoke({"group": "billing-svc", "window_minutes": 30})
+    )
+    urp = json.loads(
+        await tools["under_replicated_partitions"].ainvoke({"topics": ["payments", "orders"]})
+    )
+
+    result = await _submit_kafka_replay(
+        tools,
+        urp["signal_id"],
+        [urp["signal_id"], rebalance["signal_id"]],
+        _replay("billing-svc", "orders"),
+    )
+
+    assert "rejected" not in result
+    assert result_holder["diagnosis"].proposal.tier == 1
+
+
+@pytest.mark.asyncio
+async def test_kafka_replay_on_an_uninvestigated_group_is_rejected(tmp_path):
+    tools, result_holder = _build_tools(tmp_path, "wiring-kafka-replay-ungrounded")
+    lag = json.loads(
+        await tools["consumer_lag_trend"].ainvoke({"group": "billing-svc", "topic": "orders"})
+    )
+
+    result = await _submit_kafka_replay(
+        tools, lag["signal_id"], [lag["signal_id"]], _replay("other-group", "orders")
+    )
+
+    assert "replay_kafka_offsets targets group 'other-group', but no signal collected" in result
+    assert "diagnosis" not in result_holder

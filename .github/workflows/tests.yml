@@ -15,8 +15,27 @@ jobs:
         with:
           python-version: "3.11"
 
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: "0.11"
+
       - name: Install dependencies
         run: ./auto/build
 
-      - name: Run offline test suite
-        run: ./auto/test
+      - name: Lint (ruff)
+        run: .venv/bin/ruff check .
+
+      - name: Format check (ruff)
+        run: .venv/bin/ruff format --check .
+
+      - name: Type check (mypy)
+        run: .venv/bin/mypy
+
+      - name: Run offline test suite with coverage
+        run: ./auto/test --cov
+
+      - name: Audit runtime dependencies (pip-audit)
+        run: |
+          uv export --frozen --no-dev --no-emit-project -o "$RUNNER_TEMP/runtime-requirements.txt"
+          .venv/bin/pip-audit --strict --disable-pip --require-hashes \
+            -r "$RUNNER_TEMP/runtime-requirements.txt"

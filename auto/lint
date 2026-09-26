@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Runs the same static checks as CI: ruff lint, ruff format check, mypy.
+# To apply fixes instead: `.venv/bin/ruff check --fix . && .venv/bin/ruff format .`
+set -euo pipefail
+cd "$(dirname "$0")/.."
+source .venv/bin/activate
+ruff check .
+ruff format --check .
+mypy

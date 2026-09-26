@@ -140,7 +140,7 @@ Tests and evaluations answer different questions.
 ./auto/test
 ```
 
-**215/215 tests** run without Kafka, Flink, Marquez, dbt, or Anthropic.
+**217/217 tests** run without Kafka, Flink, Marquez, dbt, or Anthropic.
 
 To include the live-model test:
 
@@ -149,6 +149,14 @@ To include the live-model test:
 ```
 
 The test suite verifies code and structural correctness. It does not claim that every diagnosis is correct.
+
+### Lint and type checks
+
+```bash
+./auto/lint
+```
+
+Runs ruff (lint and format check) and mypy, the same static checks as CI. CI also runs the test suite with a coverage floor (`./auto/test --cov`) and `pip-audit` on the locked runtime dependencies.
 
 ### Agent evaluation suite
 

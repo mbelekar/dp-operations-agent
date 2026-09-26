@@ -12,7 +12,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from dp_ops_agent.evidence.signals.base import Absent, PassThrough, Payload, Scope, SignalTargets
+from dp_ops_agent.evidence.signals.base import (
+    Absent,
+    PassThrough,
+    Payload,
+    Scope,
+    SignalBase,
+    SignalTargets,
+)
 
 # Artifact name (run_results, manifest, sources, catalog) -> its generated_at.
 GeneratedAt = dict[str, datetime | None]
@@ -112,3 +119,41 @@ class DependencyGraphCompileErrorObserved(Payload):
     changed_parents: list[ChangedParent]
     parents_not_in_catalog: list[str]
     artifacts_generated_at: GeneratedAt
+
+
+# --- signals ------------------------------------------------------------------
+# tool and signal_type are fixed per class; they keep their position in the
+# JSON (SignalBase's field order) even though they're redeclared here.
+
+
+class TestFailureSignal(SignalBase[DbtModelScope, TestFailureObserved | DbtModelNotFound]):
+    __test__ = False  # not a pytest test class, despite the name
+
+    tool: Literal["dbt.test_failure"] = "dbt.test_failure"
+    signal_type: Literal["test_failure"] = "test_failure"
+
+
+class ModelRunFailureSignal(SignalBase[DbtModelScope, ModelRunFailureObserved | DbtModelNotFound]):
+    tool: Literal["dbt.model_run_failure"] = "dbt.model_run_failure"
+    signal_type: Literal["model_run_failure"] = "model_run_failure"
+
+
+class FreshnessCheckFailureSignal(
+    SignalBase[DbtSourceScope, FreshnessCheckFailureObserved | DbtSourceNotFound]
+):
+    tool: Literal["dbt.freshness_check_failure"] = "dbt.freshness_check_failure"
+    signal_type: Literal["freshness_check_failure"] = "freshness_check_failure"
+
+
+class IncrementalModelDriftSignal(
+    SignalBase[DbtModelScope, IncrementalModelDriftObserved | DbtModelNotFound]
+):
+    tool: Literal["dbt.incremental_model_drift"] = "dbt.incremental_model_drift"
+    signal_type: Literal["incremental_model_drift"] = "incremental_model_drift"
+
+
+class DependencyGraphCompileErrorSignal(
+    SignalBase[DbtModelScope, DependencyGraphCompileErrorObserved | DbtModelNotFound]
+):
+    tool: Literal["dbt.dependency_graph_compile_error"] = "dbt.dependency_graph_compile_error"
+    signal_type: Literal["dependency_graph_compile_error"] = "dependency_graph_compile_error"

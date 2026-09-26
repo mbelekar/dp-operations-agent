@@ -20,11 +20,28 @@ from datetime import UTC, datetime
 from typing import Any, TypeVar
 
 from langchain_core.tools import BaseTool, tool
-from pydantic import TypeAdapter
 
 from dp_ops_agent.audit.models import AuditEvent
 from dp_ops_agent.audit.sink import AuditSink
-from dp_ops_agent.evidence.schema import Severity, Signal, SignalType
+from dp_ops_agent.evidence.schema import Severity, Signal
+from dp_ops_agent.evidence.signals.dbt import (
+    ChangedParent,
+    DbtModelNotFound,
+    DbtModelScope,
+    DbtSourceNotFound,
+    DbtSourceScope,
+    DbtTestResult,
+    DependencyGraphCompileErrorObserved,
+    DependencyGraphCompileErrorSignal,
+    FreshnessCheckFailureObserved,
+    FreshnessCheckFailureSignal,
+    IncrementalModelDriftObserved,
+    IncrementalModelDriftSignal,
+    ModelRunFailureObserved,
+    ModelRunFailureSignal,
+    TestFailureObserved,
+    TestFailureSignal,
+)
 from dp_ops_agent.tools.dbt.gateway import (
     DbtArtifactsGateway,
     ManifestNode,
@@ -39,9 +56,6 @@ _STALE_FRESHNESS_STATUSES = ("error", "runtime error")
 # previous run's.
 _DRIFT_WARN_RATIO = 0.5
 _DRIFT_CRITICAL_RATIO = 0.1
-# observed holds artifact timestamps; dumping it to JSON-safe values up front
-# keeps the collected Signal identical to the JSON the model is shown.
-_OBSERVED = TypeAdapter(dict[str, Any])
 
 
 def _record_signal(
@@ -127,41 +141,35 @@ def build_dbt_tools(
     session_id: str,
     collected_signals: list[Signal],
 ) -> list[BaseTool]:
-    def _signal(
-        name: SignalType,
-        scope: dict[str, str],
-        observed: dict[str, Any],
-        severity: Severity,
-        raw_source_ref: str,
-    ) -> str:
-        now = datetime.now(UTC)
-        signal = Signal(
-            tool=f"dbt.{name}",
-            signal_type=name,
-            collected_at=now,
-            window_start=now,
-            window_end=now,
-            scope=scope,
-            observed=_OBSERVED.dump_python(observed, mode="json"),
-            severity=severity,
-            raw_source_ref=raw_source_ref,
-        )
+    def _signal(signal: Signal) -> str:
         return _record_signal(audit, session_id, collected_signals, signal)
 
-    def _model_not_found(name: SignalType, model: str, manifest: ManifestView) -> str:
+    def _model_not_found(
+        signal_class: type[TestFailureSignal]
+        | type[ModelRunFailureSignal]
+        | type[IncrementalModelDriftSignal]
+        | type[DependencyGraphCompileErrorSignal],
+        model: str,
+        manifest: ManifestView,
+    ) -> str:
         known = sorted(n.name for n in manifest.nodes.values() if n.resource_type == "model")
+        now = datetime.now(UTC)
         return _signal(
-            name,
-            {"model": model},
-            {
-                "model_found": False,
-                "known_models": capped(known),
-                "no_data_reason": (
-                    f"no dbt model named {model!r} in the manifest; known models: {describe(known)}"
+            signal_class(
+                collected_at=now,
+                window_start=now,
+                window_end=now,
+                scope=DbtModelScope(model=model),
+                observed=DbtModelNotFound(
+                    known_models=capped(known),
+                    no_data_reason=(
+                        f"no dbt model named {model!r} in the manifest; "
+                        f"known models: {describe(known)}"
+                    ),
                 ),
-            },
-            "unknown",
-            "dbt:target/manifest.json",
+                severity="unknown",
+                raw_source_ref="dbt:target/manifest.json",
+            )
         )
 
     @tool
@@ -176,7 +184,7 @@ def build_dbt_tools(
         manifest = _current(gateway.manifest("current"), "manifest")
         node = _find_model(manifest, model)
         if node is None:
-            return _model_not_found("test_failure", model, manifest)
+            return _model_not_found(TestFailureSignal, model, manifest)
         run_results = _current(gateway.run_results("current"), "run_results")
         state_manifest = gateway.manifest("state")
         state_run_results = gateway.run_results("state")
@@ -187,8 +195,8 @@ def build_dbt_tools(
             if n.resource_type == "test"
             and (n.attached_node == node.unique_id or node.unique_id in n.depends_on)
         ]
-        failing: list[dict[str, Any]] = []
-        warning: list[dict[str, Any]] = []
+        failing: list[DbtTestResult] = []
+        warning: list[DbtTestResult] = []
         skipped: list[str] = []
         not_run: list[str] = []
         passing = 0
@@ -204,16 +212,16 @@ def build_dbt_tools(
                 passing += 1
                 continue
             previous = _status(state_run_results, t.unique_id)
-            entry = {
-                "test": t.name,
-                "status": result.status,
-                "failures": result.failures,
-                "message": result.message,
-                "previously_passed": None if previous is None else previous == "pass",
-            }
+            entry = DbtTestResult(
+                test=t.name,
+                status=result.status,
+                failures=result.failures,
+                message=result.message,
+                previously_passed=None if previous is None else previous == "pass",
+            )
             (failing if result.status in _FAILING_TEST_STATUSES else warning).append(entry)
 
-        previously_passed = [f["previously_passed"] for f in failing]
+        previously_passed = [f.previously_passed for f in failing]
         if not failing or None in previously_passed:
             all_failing_previously_passed = None
         else:
@@ -232,22 +240,29 @@ def build_dbt_tools(
                 f"no test on {model!r} ran in the latest run "
                 f"({len(not_run)} not run, {len(skipped)} skipped)"
             )
+        now = datetime.now(UTC)
         return _signal(
-            "test_failure",
-            {"model": model, "lineage_node_id": _lineage_node_id(node)},
-            {
-                **({"no_data_reason": no_data_reason} if no_data_reason else {}),
-                "model_code_changed": _code_changed(node, state_manifest),
-                "failing_tests": failing,
-                "warning_tests": warning,
-                "skipped_tests": skipped,
-                "not_run_tests": not_run,
-                "passing_tests": passing,
-                "all_failing_previously_passed": all_failing_previously_passed,
-                "artifacts_generated_at": _generated_at(run_results=run_results, manifest=manifest),
-            },
-            severity,
-            "dbt:target/run_results.json + manifest.json (vs. state/)",
+            TestFailureSignal(
+                collected_at=now,
+                window_start=now,
+                window_end=now,
+                scope=DbtModelScope(model=model, lineage_node_id=_lineage_node_id(node)),
+                observed=TestFailureObserved(
+                    no_data_reason=no_data_reason,
+                    model_code_changed=_code_changed(node, state_manifest),
+                    failing_tests=failing,
+                    warning_tests=warning,
+                    skipped_tests=skipped,
+                    not_run_tests=not_run,
+                    passing_tests=passing,
+                    all_failing_previously_passed=all_failing_previously_passed,
+                    artifacts_generated_at=_generated_at(
+                        run_results=run_results, manifest=manifest
+                    ),
+                ),
+                severity=severity,
+                raw_source_ref="dbt:target/run_results.json + manifest.json (vs. state/)",
+            )
         )
 
     @tool
@@ -260,7 +275,7 @@ def build_dbt_tools(
         manifest = _current(gateway.manifest("current"), "manifest")
         node = _find_model(manifest, model)
         if node is None:
-            return _model_not_found("model_run_failure", model, manifest)
+            return _model_not_found(ModelRunFailureSignal, model, manifest)
         run_results = _current(gateway.run_results("current"), "run_results")
         result = run_results.results.get(node.unique_id)
         status = result.status if result is not None else "not_run"
@@ -273,23 +288,30 @@ def build_dbt_tools(
             severity = "unknown"
         else:
             severity = "ok"
+        now = datetime.now(UTC)
         return _signal(
-            "model_run_failure",
-            {"model": model, "lineage_node_id": _lineage_node_id(node)},
-            {
-                **(
-                    {"no_data_reason": f"{model!r} is not in the latest run's results"}
-                    if status == "not_run"
-                    else {}
+            ModelRunFailureSignal(
+                collected_at=now,
+                window_start=now,
+                window_end=now,
+                scope=DbtModelScope(model=model, lineage_node_id=_lineage_node_id(node)),
+                observed=ModelRunFailureObserved(
+                    no_data_reason=(
+                        f"{model!r} is not in the latest run's results"
+                        if status == "not_run"
+                        else None
+                    ),
+                    status=status,
+                    message=result.message if result is not None else None,
+                    previous_status=_status(gateway.run_results("state"), node.unique_id),
+                    model_code_changed=_code_changed(node, gateway.manifest("state")),
+                    artifacts_generated_at=_generated_at(
+                        run_results=run_results, manifest=manifest
+                    ),
                 ),
-                "status": status,
-                "message": result.message if result is not None else None,
-                "previous_status": _status(gateway.run_results("state"), node.unique_id),
-                "model_code_changed": _code_changed(node, gateway.manifest("state")),
-                "artifacts_generated_at": _generated_at(run_results=run_results, manifest=manifest),
-            },
-            severity,
-            "dbt:target/run_results.json + manifest.json (vs. state/)",
+                severity=severity,
+                raw_source_ref="dbt:target/run_results.json + manifest.json (vs. state/)",
+            )
         )
 
     @tool
@@ -311,19 +333,23 @@ def build_dbt_tools(
             known_sources = sorted(
                 _display_name(n) for n in manifest.nodes.values() if n.resource_type == "source"
             )
+            now = datetime.now(UTC)
             return _signal(
-                "freshness_check_failure",
-                {"source": source},
-                {
-                    "source_found": False,
-                    "known_sources": capped(known_sources),
-                    "no_data_reason": (
-                        f"no dbt source named {source!r} in the manifest; known sources "
-                        f"(source_name.table_name): {describe(known_sources)}"
+                FreshnessCheckFailureSignal(
+                    collected_at=now,
+                    window_start=now,
+                    window_end=now,
+                    scope=DbtSourceScope(source=source),
+                    observed=DbtSourceNotFound(
+                        known_sources=capped(known_sources),
+                        no_data_reason=(
+                            f"no dbt source named {source!r} in the manifest; known sources "
+                            f"(source_name.table_name): {describe(known_sources)}"
+                        ),
                     ),
-                },
-                "unknown",
-                "dbt:target/manifest.json",
+                    severity="unknown",
+                    raw_source_ref="dbt:target/manifest.json",
+                )
             )
         freshness = _current(gateway.source_freshness("current"), "source_freshness")
         result = freshness.results.get(node.unique_id)
@@ -337,23 +363,28 @@ def build_dbt_tools(
             severity = "unknown"
         else:
             severity = "ok"
+        now = datetime.now(UTC)
         return _signal(
-            "freshness_check_failure",
-            {"source": source, "lineage_node_id": _lineage_node_id(node)},
-            {
-                **(
-                    {"no_data_reason": f"`dbt source freshness` has no result for {source!r}"}
-                    if status == "not_checked"
-                    else {}
+            FreshnessCheckFailureSignal(
+                collected_at=now,
+                window_start=now,
+                window_end=now,
+                scope=DbtSourceScope(source=source, lineage_node_id=_lineage_node_id(node)),
+                observed=FreshnessCheckFailureObserved(
+                    no_data_reason=(
+                        f"`dbt source freshness` has no result for {source!r}"
+                        if status == "not_checked"
+                        else None
+                    ),
+                    status=status,
+                    max_loaded_at=result.max_loaded_at if result is not None else None,
+                    age_seconds=result.age_seconds if result is not None else None,
+                    criteria=result.criteria if result is not None else {},
+                    artifacts_generated_at=_generated_at(sources=freshness, manifest=manifest),
                 ),
-                "status": status,
-                "max_loaded_at": result.max_loaded_at if result is not None else None,
-                "age_seconds": result.age_seconds if result is not None else None,
-                "criteria": result.criteria if result is not None else {},
-                "artifacts_generated_at": _generated_at(sources=freshness, manifest=manifest),
-            },
-            severity,
-            "dbt:target/sources.json",
+                severity=severity,
+                raw_source_ref="dbt:target/sources.json",
+            )
         )
 
     @tool
@@ -368,7 +399,7 @@ def build_dbt_tools(
         manifest = _current(gateway.manifest("current"), "manifest")
         node = _find_model(manifest, model)
         if node is None:
-            return _model_not_found("incremental_model_drift", model, manifest)
+            return _model_not_found(IncrementalModelDriftSignal, model, manifest)
         run_results = _current(gateway.run_results("current"), "run_results")
         state_run_results = gateway.run_results("state")
         current = run_results.results.get(node.unique_id)
@@ -409,23 +440,30 @@ def build_dbt_tools(
                 severity = "warn"
             if no_data_reason:
                 severity = "unknown"
+        now = datetime.now(UTC)
         return _signal(
-            "incremental_model_drift",
-            {"model": model, "lineage_node_id": _lineage_node_id(node)},
-            {
-                **({"no_data_reason": no_data_reason} if no_data_reason else {}),
-                "materialized": node.materialized,
-                "current_rows_affected": current_rows,
-                "previous_rows_affected": previous_rows,
-                "current_adapter_code": current_code,
-                "previous_adapter_code": previous_code,
-                "rows_affected_available": rows_available,
-                "comparable": comparable,
-                "ratio": ratio,
-                "artifacts_generated_at": _generated_at(run_results=run_results, manifest=manifest),
-            },
-            severity,
-            "dbt:target/run_results.json adapter_response (vs. state/)",
+            IncrementalModelDriftSignal(
+                collected_at=now,
+                window_start=now,
+                window_end=now,
+                scope=DbtModelScope(model=model, lineage_node_id=_lineage_node_id(node)),
+                observed=IncrementalModelDriftObserved(
+                    no_data_reason=no_data_reason,
+                    materialized=node.materialized,
+                    current_rows_affected=current_rows,
+                    previous_rows_affected=previous_rows,
+                    current_adapter_code=current_code,
+                    previous_adapter_code=previous_code,
+                    rows_affected_available=rows_available,
+                    comparable=comparable,
+                    ratio=ratio,
+                    artifacts_generated_at=_generated_at(
+                        run_results=run_results, manifest=manifest
+                    ),
+                ),
+                severity=severity,
+                raw_source_ref="dbt:target/run_results.json adapter_response (vs. state/)",
+            )
         )
 
     @tool
@@ -439,14 +477,15 @@ def build_dbt_tools(
         manifest = _current(gateway.manifest("current"), "manifest")
         node = _find_model(manifest, model)
         if node is None:
-            return _model_not_found("dependency_graph_compile_error", model, manifest)
+            return _model_not_found(DependencyGraphCompileErrorSignal, model, manifest)
         run_results = _current(gateway.run_results("current"), "run_results")
         catalog = gateway.catalog("current")
         state_catalog = gateway.catalog("state")
         model_status = _status(run_results, node.unique_id)
         catalog_available = catalog is not None and state_catalog is not None
 
-        changed_parents, not_in_catalog = [], []
+        changed_parents: list[ChangedParent] = []
+        not_in_catalog: list[str] = []
         if catalog is not None and state_catalog is not None:
             for parent_id in node.depends_on:
                 parent = manifest.nodes.get(parent_id)
@@ -464,13 +503,13 @@ def build_dbt_tools(
                 }
                 if added or removed or retyped:
                     changed_parents.append(
-                        {
-                            "parent": _display_name(parent),
-                            "lineage_node_id": _lineage_node_id(parent),
-                            "added": added,
-                            "removed": removed,
-                            "retyped": retyped,
-                        }
+                        ChangedParent(
+                            parent=_display_name(parent),
+                            lineage_node_id=_lineage_node_id(parent),
+                            added=added,
+                            removed=removed,
+                            retyped=retyped,
+                        )
                     )
 
         no_data_reason = None
@@ -489,22 +528,27 @@ def build_dbt_tools(
             no_data_reason = "none of the model's parents are in both runs' catalogs"
         else:
             severity = "ok"
+        now = datetime.now(UTC)
         return _signal(
-            "dependency_graph_compile_error",
-            {"model": model, "lineage_node_id": _lineage_node_id(node)},
-            {
-                **({"no_data_reason": no_data_reason} if no_data_reason else {}),
-                "model_status": model_status,
-                "model_code_changed": _code_changed(node, gateway.manifest("state")),
-                "catalog_available": catalog_available,
-                "changed_parents": changed_parents,
-                "parents_not_in_catalog": not_in_catalog,
-                "artifacts_generated_at": _generated_at(
-                    run_results=run_results, manifest=manifest, catalog=catalog
+            DependencyGraphCompileErrorSignal(
+                collected_at=now,
+                window_start=now,
+                window_end=now,
+                scope=DbtModelScope(model=model, lineage_node_id=_lineage_node_id(node)),
+                observed=DependencyGraphCompileErrorObserved(
+                    no_data_reason=no_data_reason,
+                    model_status=model_status,
+                    model_code_changed=_code_changed(node, gateway.manifest("state")),
+                    catalog_available=catalog_available,
+                    changed_parents=changed_parents,
+                    parents_not_in_catalog=not_in_catalog,
+                    artifacts_generated_at=_generated_at(
+                        run_results=run_results, manifest=manifest, catalog=catalog
+                    ),
                 ),
-            },
-            severity,
-            "dbt:target/catalog.json + manifest.json (vs. state/)",
+                severity=severity,
+                raw_source_ref="dbt:target/catalog.json + manifest.json (vs. state/)",
+            )
         )
 
     return [

@@ -8,6 +8,22 @@ import pytest
 
 from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
 from dp_ops_agent.evidence.schema import Signal
+from dp_ops_agent.evidence.signals.dbt import (
+    DbtModelNotFound,
+    DbtModelScope,
+    DbtSourceNotFound,
+    DbtSourceScope,
+    DependencyGraphCompileErrorObserved,
+    DependencyGraphCompileErrorSignal,
+    FreshnessCheckFailureObserved,
+    FreshnessCheckFailureSignal,
+    IncrementalModelDriftObserved,
+    IncrementalModelDriftSignal,
+    ModelRunFailureObserved,
+    ModelRunFailureSignal,
+    TestFailureObserved,
+    TestFailureSignal,
+)
 from dp_ops_agent.tools.dbt.fixture_gateway import FixtureDbtGateway
 from dp_ops_agent.tools.dbt.gateway import DbtArtifactsUnavailable
 from dp_ops_agent.tools.dbt.tools import build_dbt_tools
@@ -125,7 +141,8 @@ async def test_failure_that_passed_last_run_with_unchanged_code_points_upstream(
         },
     )
 
-    signal = await _signal(tools, "test_failure", {"model": "stg_orders"})
+    result = await tools["test_failure"].ainvoke({"model": "stg_orders"})
+    signal = Signal.model_validate_json(result)
 
     assert signal.tool == "dbt.test_failure"
     assert signal.severity == "critical"
@@ -141,7 +158,8 @@ async def test_failure_that_passed_last_run_with_unchanged_code_points_upstream(
         "previously_passed": True,
     }
     assert signal.observed["artifacts_generated_at"]["run_results"] == "2026-09-24T00:08:43Z"
-    assert collected == [signal]
+    # What was collected is exactly what the model was shown.
+    assert [s.model_dump_json() for s in collected] == [result]
 
 
 @pytest.mark.asyncio
@@ -470,3 +488,88 @@ async def test_missing_current_artifacts_raise_for_the_error_middleware(tmp_path
     with pytest.raises(DbtArtifactsUnavailable):
         await tools["test_failure"].ainvoke({"model": "stg_orders"})
     assert collected == []
+
+
+_FULL_RUN = {
+    "manifest": _manifest(),
+    "run_results": _rr({NOT_NULL: "pass", FCT: "success"}),
+    "sources": _sources(),
+    "catalog": _catalog(order_id="BIGINT"),
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool", "args", "signal_class", "scope_class", "observed_class"),
+    [
+        (
+            "test_failure",
+            {"model": "stg_orders"},
+            TestFailureSignal,
+            DbtModelScope,
+            TestFailureObserved,
+        ),
+        (
+            "model_run_failure",
+            {"model": "fct_orders"},
+            ModelRunFailureSignal,
+            DbtModelScope,
+            ModelRunFailureObserved,
+        ),
+        (
+            "freshness_check_failure",
+            {"source": "raw.orders_sink"},
+            FreshnessCheckFailureSignal,
+            DbtSourceScope,
+            FreshnessCheckFailureObserved,
+        ),
+        (
+            "incremental_model_drift",
+            {"model": "fct_orders"},
+            IncrementalModelDriftSignal,
+            DbtModelScope,
+            IncrementalModelDriftObserved,
+        ),
+        (
+            "dependency_graph_compile_error",
+            {"model": "stg_orders"},
+            DependencyGraphCompileErrorSignal,
+            DbtModelScope,
+            DependencyGraphCompileErrorObserved,
+        ),
+        # Not found: same signal class, the not-found payload.
+        (
+            "test_failure",
+            {"model": "no_such_model"},
+            TestFailureSignal,
+            DbtModelScope,
+            DbtModelNotFound,
+        ),
+        (
+            "freshness_check_failure",
+            {"source": "raw.nope"},
+            FreshnessCheckFailureSignal,
+            DbtSourceScope,
+            DbtSourceNotFound,
+        ),
+    ],
+    ids=[
+        "test_failure",
+        "model_run_failure",
+        "freshness",
+        "drift",
+        "dependency_graph",
+        "model-not-found",
+        "source-not-found",
+    ],
+)
+async def test_tools_collect_typed_signals(
+    tmp_path, tool, args, signal_class, scope_class, observed_class
+):
+    tools, collected = _build_tools(tmp_path, current=_FULL_RUN, state=_FULL_RUN)
+    await tools[tool].ainvoke(args)
+
+    [signal] = collected
+    assert type(signal) is signal_class
+    assert type(signal.scope) is scope_class
+    assert type(signal.observed) is observed_class

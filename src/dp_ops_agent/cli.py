@@ -5,6 +5,7 @@ import os
 import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 import typer
@@ -15,12 +16,16 @@ from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
 from dp_ops_agent.evidence.schema import Proposal
 from dp_ops_agent.orchestrator.session import DiagnosisNotSubmittedError, run_diagnosis
 from dp_ops_agent.tools.dbt.fixture_gateway import FixtureDbtGateway
+from dp_ops_agent.tools.dbt.gateway import DbtArtifactsGateway
 from dp_ops_agent.tools.dbt.live_gateway import LiveDbtGateway
 from dp_ops_agent.tools.flink.fixture_gateway import FixtureFlinkGateway
+from dp_ops_agent.tools.flink.gateway import FlinkMetricsGateway
 from dp_ops_agent.tools.flink.live_gateway import LiveFlinkGateway
 from dp_ops_agent.tools.kafka.fixture_gateway import FixtureKafkaGateway
+from dp_ops_agent.tools.kafka.gateway import KafkaMetricsGateway
 from dp_ops_agent.tools.kafka.live_gateway import LiveKafkaGateway
 from dp_ops_agent.tools.lineage.fixture_gateway import FixtureLineageGateway
+from dp_ops_agent.tools.lineage.gateway import LineageQueryGateway
 from dp_ops_agent.tools.lineage.live_gateway import LiveLineageGateway
 
 load_dotenv()
@@ -145,14 +150,14 @@ def diagnose(
     audit = JsonlAuditSink(log_dir, session_id)
 
     if live:
-        kafka_gateway = LiveKafkaGateway(
+        kafka_gateway: KafkaMetricsGateway = LiveKafkaGateway(
             bootstrap_servers=kafka_bootstrap_servers,
             jmx_exporter_base_url=kafka_jmx_url,
             schema_registry_url=schema_registry_url,
         )
-        flink_gateway = LiveFlinkGateway(flink_rest_url)
-        lineage_gateway = LiveLineageGateway(marquez_url)
-        dbt_gateway = LiveDbtGateway(dbt_target_dir, dbt_state_dir)
+        flink_gateway: FlinkMetricsGateway = LiveFlinkGateway(flink_rest_url)
+        lineage_gateway: LineageQueryGateway = LiveLineageGateway(marquez_url)
+        dbt_gateway: DbtArtifactsGateway = LiveDbtGateway(dbt_target_dir, dbt_state_dir)
         alert_text = _augment_alert_text(
             alert_text,
             kafka_topics,
@@ -212,7 +217,8 @@ def _echo_proposal(proposal: Proposal | None) -> None:
         typer.echo("\nProposal: none (Tier 0, root cause identified, no action proposed)")
         return
     typer.echo(f"\nProposal (Tier {proposal.tier}, for human review; nothing was executed):")
-    typer.echo(f"  Action: {proposal.action.action_type}")
+    action_type = proposal.action.action_type if proposal.action is not None else "none"
+    typer.echo(f"  Action: {action_type}")
     typer.echo(f"  Expected outcome: {proposal.expected_outcome}")
     typer.echo("  Command:")
     for line in (proposal.command or "").splitlines():
@@ -246,7 +252,7 @@ def _load_proposal(proposal_id: str, log_dir: str) -> ProposalRecord:
 
 def _decide(
     record: ProposalRecord,
-    decision: str,
+    decision: Literal["approved", "rejected"],
     reviewer: str,
     reason: str | None,
     expires_in: timedelta = timedelta(hours=1),

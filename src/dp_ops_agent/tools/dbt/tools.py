@@ -17,7 +17,7 @@ tracing a dbt symptom upstream never depends on the model building an id.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, TypeVar
 
 from langchain_core.tools import BaseTool, tool
 from pydantic import TypeAdapter
@@ -81,6 +81,21 @@ def _find_model(manifest: ManifestView, name: str) -> ManifestNode | None:
         (n for n in manifest.nodes.values() if n.resource_type == "model" and n.name == name),
         None,
     )
+
+
+_View = TypeVar("_View")
+
+
+def _current(view: _View | None, artifact: str) -> _View:
+    """Narrows a current-run artifact. The gateway contract (gateway.py)
+    raises DbtArtifactsUnavailable when one is missing, so None here is a
+    gateway bug and propagates as one, not as missing data."""
+    if view is None:
+        raise RuntimeError(
+            f"dbt gateway returned no current {artifact}; it must raise "
+            "DbtArtifactsUnavailable instead"
+        )
+    return view
 
 
 def _code_changed(node: ManifestNode, state_manifest: ManifestView | None) -> bool | None:
@@ -158,11 +173,11 @@ def build_dbt_tools(
         its logic: trace upstream from scope.lineage_node_id. A null
         previously_passed or model_code_changed means there is no previous
         run to compare against."""
-        manifest = gateway.manifest("current")
+        manifest = _current(gateway.manifest("current"), "manifest")
         node = _find_model(manifest, model)
         if node is None:
             return _model_not_found("test_failure", model, manifest)
-        run_results = gateway.run_results("current")
+        run_results = _current(gateway.run_results("current"), "run_results")
         state_manifest = gateway.manifest("state")
         state_run_results = gateway.run_results("state")
 
@@ -172,7 +187,11 @@ def build_dbt_tools(
             if n.resource_type == "test"
             and (n.attached_node == node.unique_id or node.unique_id in n.depends_on)
         ]
-        failing, warning, skipped, not_run, passing = [], [], [], [], 0
+        failing: list[dict[str, Any]] = []
+        warning: list[dict[str, Any]] = []
+        skipped: list[str] = []
+        not_run: list[str] = []
+        passing = 0
         for t in sorted(tests, key=lambda t: t.name):
             result = run_results.results.get(t.unique_id)
             if result is None:
@@ -238,11 +257,11 @@ def build_dbt_tools(
         error on unchanged code points at a schema change, broken ref, or
         warehouse limit rather than the model's own SQL. A skipped model
         didn't run because something it depends on failed first."""
-        manifest = gateway.manifest("current")
+        manifest = _current(gateway.manifest("current"), "manifest")
         node = _find_model(manifest, model)
         if node is None:
             return _model_not_found("model_run_failure", model, manifest)
-        run_results = gateway.run_results("current")
+        run_results = _current(gateway.run_results("current"), "run_results")
         result = run_results.results.get(node.unique_id)
         status = result.status if result is not None else "not_run"
 
@@ -279,7 +298,7 @@ def build_dbt_tools(
         "source_name.table_name" (e.g. "raw.orders_sink"). A stale source is
         almost always an upstream problem: the loader or streaming sink
         stopped landing data. Trace upstream from scope.lineage_node_id."""
-        manifest = gateway.manifest("current")
+        manifest = _current(gateway.manifest("current"), "manifest")
         node = next(
             (
                 n
@@ -306,7 +325,7 @@ def build_dbt_tools(
                 "unknown",
                 "dbt:target/manifest.json",
             )
-        freshness = gateway.source_freshness("current")
+        freshness = _current(gateway.source_freshness("current"), "source_freshness")
         result = freshness.results.get(node.unique_id)
         status = result.status if result is not None else "not_checked"
 
@@ -346,11 +365,11 @@ def build_dbt_tools(
         some adapters don't report rows_affected, and runs of different
         kinds (e.g. the initial full build vs. an incremental insert) are
         reported as not comparable."""
-        manifest = gateway.manifest("current")
+        manifest = _current(gateway.manifest("current"), "manifest")
         node = _find_model(manifest, model)
         if node is None:
             return _model_not_found("incremental_model_drift", model, manifest)
-        run_results = gateway.run_results("current")
+        run_results = _current(gateway.run_results("current"), "run_results")
         state_run_results = gateway.run_results("state")
         current = run_results.results.get(node.unique_id)
         previous = (
@@ -363,7 +382,11 @@ def build_dbt_tools(
         previous_code = previous.adapter_code if previous is not None else None
         rows_available = current_rows is not None and previous_rows is not None
         comparable = rows_available and current_code == previous_code
-        ratio = current_rows / previous_rows if comparable and previous_rows else None
+        ratio = (
+            current_rows / previous_rows
+            if comparable and current_rows is not None and previous_rows
+            else None
+        )
 
         severity: Severity = "ok"
         no_data_reason = None
@@ -413,18 +436,18 @@ def build_dbt_tools(
         while the model's own code did not, followed by the model failing,
         means the upstream table changed without a matching model update.
         catalog.json only exists if `dbt docs generate` ran."""
-        manifest = gateway.manifest("current")
+        manifest = _current(gateway.manifest("current"), "manifest")
         node = _find_model(manifest, model)
         if node is None:
             return _model_not_found("dependency_graph_compile_error", model, manifest)
-        run_results = gateway.run_results("current")
+        run_results = _current(gateway.run_results("current"), "run_results")
         catalog = gateway.catalog("current")
         state_catalog = gateway.catalog("state")
         model_status = _status(run_results, node.unique_id)
         catalog_available = catalog is not None and state_catalog is not None
 
         changed_parents, not_in_catalog = [], []
-        if catalog_available:
+        if catalog is not None and state_catalog is not None:
             for parent_id in node.depends_on:
                 parent = manifest.nodes.get(parent_id)
                 current_cols = catalog.columns.get(parent_id)

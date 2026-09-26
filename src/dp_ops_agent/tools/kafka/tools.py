@@ -288,7 +288,7 @@ def build_kafka_tools(
         incompatible schema change."""
         now = datetime.now(UTC)
         result = gateway.schema_registry_subject(subject)
-        observed = {"raw": result}
+        observed: dict[str, Any] = {"raw": result}
         if not result or "is_compatible" not in result:
             # An empty or unrecognized response is no compatibility verdict at
             # all, not a compatible one.

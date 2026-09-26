@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from langchain_core.tools import BaseTool, tool
 
@@ -85,7 +86,7 @@ def build_flink_tools(
         view = gateway.checkpoint_history(job_id)
         most_recent_failed = bool(view.history) and view.history[-1].status == "FAILED"
         critical = most_recent_failed or view.counts.failed >= 3
-        observed = {
+        observed: dict[str, Any] = {
             "counts": view.counts.model_dump(),
             "most_recent_status": view.history[-1].status if view.history else None,
         }

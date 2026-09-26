@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import cast
 
 from langchain.agents import create_agent
 from langchain_anthropic import ChatAnthropic
@@ -47,7 +48,9 @@ def _total_usage(messages: list) -> TokenUsage:
         if not isinstance(message, AIMessage) or not message.usage_metadata:
             continue
         meta = message.usage_metadata
-        details = meta.get("input_token_details") or {}
+        # A plain dict: the per-TTL cache keys below aren't in langchain's
+        # InputTokenDetails TypedDict.
+        details = cast("dict[str, int]", meta.get("input_token_details") or {})
         usage.input_tokens += meta.get("input_tokens", 0)
         usage.output_tokens += meta.get("output_tokens", 0)
         usage.cache_read_tokens += details.get("cache_read", 0) or 0

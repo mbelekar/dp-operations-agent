@@ -4,6 +4,11 @@ import pytest
 
 from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
 from dp_ops_agent.evidence.schema import Signal
+from dp_ops_agent.evidence.signals.lineage import (
+    LineageNodeScope,
+    LineageUpstreamObserved,
+    LineageUpstreamSignal,
+)
 from dp_ops_agent.tools.lineage.fixture_gateway import FixtureLineageGateway
 from dp_ops_agent.tools.lineage.tools import build_lineage_tools
 
@@ -33,7 +38,8 @@ async def test_walk_lineage_upstream_finds_kafka_topic(tmp_path):
     assert signal.severity == "ok"
     assert signal.signal_type == "lineage_upstream"
     assert signal.observed["upstream_nodes"] == [{"id": "dataset:kafka:orders", "type": "DATASET"}]
-    assert collected == [signal]
+    # What was collected is exactly what the model was shown.
+    assert [s.model_dump_json() for s in collected] == [result]
 
 
 @pytest.mark.asyncio
@@ -66,3 +72,14 @@ async def test_walk_lineage_upstream_is_audit_logged(tmp_path):
     events = audit.query(event_type="signal_collected")
     assert len(events) == 1
     assert len(collected) == 1
+
+
+@pytest.mark.asyncio
+async def test_tool_collects_a_typed_signal(tmp_path):
+    tools, collected, _ = _build_tools(tmp_path, "flink_job_to_kafka_topic.json")
+    await tools["walk_lineage_upstream"].ainvoke({"node_id": "job:flink:orders-processing-job"})
+
+    [signal] = collected
+    assert type(signal) is LineageUpstreamSignal
+    assert type(signal.scope) is LineageNodeScope
+    assert type(signal.observed) is LineageUpstreamObserved

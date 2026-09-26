@@ -7,6 +7,12 @@ from langchain_core.tools import BaseTool, tool
 from dp_ops_agent.audit.models import AuditEvent
 from dp_ops_agent.audit.sink import AuditSink
 from dp_ops_agent.evidence.schema import Severity, Signal
+from dp_ops_agent.evidence.signals.lineage import (
+    LineageNodeScope,
+    LineageUpstreamObserved,
+    LineageUpstreamSignal,
+    UpstreamNode,
+)
 from dp_ops_agent.tools.lineage.gateway import LineageQueryGateway
 
 
@@ -49,22 +55,21 @@ def build_lineage_tools(
         upstream system this returns using that system's own tools."""
         now = datetime.now(UTC)
         view = gateway.upstream_lineage(node_id)
-        upstream_nodes = [{"id": n.id, "type": n.type} for n in view.nodes]
-        observed: dict = {"upstream_nodes": upstream_nodes}
+        observed = LineageUpstreamObserved(
+            upstream_nodes=[UpstreamNode(id=n.id, type=n.type) for n in view.nodes]
+        )
         if view.node_found:
             severity: Severity = "ok"
         else:
             severity = "unknown"
-            observed["no_data_reason"] = (
+            observed.no_data_reason = (
                 f"lineage has no node {node_id!r}; not the same as nothing upstream"
             )
-        signal = Signal(
-            tool="lineage.walk_lineage_upstream",
-            signal_type="lineage_upstream",
+        signal = LineageUpstreamSignal(
             collected_at=now,
             window_start=now,
             window_end=now,
-            scope={"node_id": node_id},
+            scope=LineageNodeScope(node_id=node_id),
             observed=observed,
             severity=severity,
             raw_source_ref=f"marquez:/api/v1/lineage?nodeId={node_id}",

@@ -16,5 +16,6 @@ These records explain the choices that shaped the project, the alternatives cons
 | [0010](0010-proposals-model-chosen-code-checked.md) | Let the model choose proposals and code check them |
 | [0011](0011-record-approvals-defer-execution.md) | Record approval decisions, defer execution |
 | [0012](0012-typed-signal-payloads.md) | Type signal payloads without changing their JSON |
+| [0013](0013-async-gateways.md) | Make gateways async so a turn's tool calls overlap |
 
 The ADRs were extracted from working plans so the architectural reasoning remains visible in the repository.

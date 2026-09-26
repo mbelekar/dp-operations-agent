@@ -68,7 +68,7 @@ This boundary lets the same tools run against real infrastructure or local fixtu
 
 - `hot_partition_skew` returns `unknown` because Kafka JMX does not expose per-partition throughput.
 - `schema_registry_compat` returns `unknown` because compatibility checks require a candidate schema and use a POST endpoint.
-- JMX responses are cached for five seconds within the live gateway to avoid repeated scrapes during one investigation.
+- JMX responses are cached for five seconds within the live gateway to avoid repeated scrapes during one investigation. Concurrent tool calls share a single in-flight scrape rather than each starting one ([ADR-0013](decisions/0013-async-gateways.md)).
 
 The live gateway has been verified against the three-broker Docker environment described in [docker.md](docker.md).
 

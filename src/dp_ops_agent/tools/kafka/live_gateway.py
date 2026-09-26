@@ -18,8 +18,10 @@ config one.
 
 from __future__ import annotations
 
+import asyncio
 import re
 import time
+from concurrent.futures import Future
 from datetime import UTC, datetime
 from typing import Any
 
@@ -45,44 +47,64 @@ class LiveKafkaGateway:
         self._jmx_base_url = jmx_exporter_base_url.rstrip("/")
         self._schema_registry_url = schema_registry_url.rstrip("/")
         self._probe_group = consumer_group_for_watermarks
-        self._http = httpx.Client(timeout=10.0)
+        self._http = httpx.AsyncClient(timeout=10.0)
+        self._admin_timeout_seconds = 10.0
         self._metrics_cache: tuple[float, str] | None = None
         self._metrics_cache_ttl_seconds = 5.0
+        # One scrape in flight at a time: concurrent tool calls wait for it
+        # and share its result instead of each hitting the (slow) aggregator.
+        self._metrics_lock = asyncio.Lock()
 
-    def _scrape_metrics(self) -> str:
+    async def aclose(self) -> None:
+        await self._http.aclose()
+
+    async def _admin_result(self, future: Future[Any]) -> Any:
+        """Awaits an AdminClient future without blocking the event loop:
+        librdkafka completes it on its own threads."""
+        return await asyncio.wait_for(asyncio.wrap_future(future), self._admin_timeout_seconds)
+
+    async def _list_topics(self, **kwargs: Any) -> Any:
+        # AdminClient.list_topics blocks and returns no future: run it in a
+        # worker thread.
+        return await asyncio.to_thread(self._admin.list_topics, timeout=10.0, **kwargs)
+
+    async def _scrape_metrics(self) -> str:
         """Fetch the Prometheus exporter's /metrics page, cached briefly so
         multiple tool calls within one diagnosis session (e.g. isr_churn and
         hot_partition_skew both hit this) don't each re-fetch and re-parse
         the full payload from the network."""
-        now = time.monotonic()
-        if self._metrics_cache is not None:
-            cached_at, body = self._metrics_cache
-            if now - cached_at < self._metrics_cache_ttl_seconds:
-                return body
-        resp = self._http.get(f"{self._jmx_base_url}/metrics")
-        resp.raise_for_status()
-        self._metrics_cache = (now, resp.text)
-        return resp.text
+        async with self._metrics_lock:
+            now = time.monotonic()
+            if self._metrics_cache is not None:
+                cached_at, body = self._metrics_cache
+                if now - cached_at < self._metrics_cache_ttl_seconds:
+                    return body
+            resp = await self._http.get(f"{self._jmx_base_url}/metrics")
+            resp.raise_for_status()
+            self._metrics_cache = (now, resp.text)
+            return resp.text
 
-    def list_topics(self) -> list[str]:
+    async def list_topics(self) -> list[str]:
         # "__"-prefixed topics are Kafka's own (__consumer_offsets, ...).
-        metadata = self._admin.list_topics(timeout=10.0)
+        metadata = await self._list_topics()
         return sorted(t for t in metadata.topics if not t.startswith("__"))
 
-    def list_consumer_groups(self) -> list[str]:
-        result = self._admin.list_consumer_groups(request_timeout=10.0).result(timeout=10.0)
+    async def list_consumer_groups(self) -> list[str]:
+        result = await self._admin_result(
+            self._admin.list_consumer_groups(request_timeout=self._admin_timeout_seconds)
+        )
         return sorted(g.group_id for g in result.valid)
 
-    def list_brokers(self) -> list[int]:
-        return sorted(self._admin.list_topics(timeout=10.0).brokers)
+    async def list_brokers(self) -> list[int]:
+        return sorted((await self._list_topics()).brokers)
 
-    def list_schema_subjects(self) -> list[str]:
-        resp = self._http.get(f"{self._schema_registry_url}/subjects")
+    async def list_schema_subjects(self) -> list[str]:
+        resp = await self._http.get(f"{self._schema_registry_url}/subjects")
         resp.raise_for_status()
         return sorted(resp.json())
 
-    def cluster_metadata(self, topics: list[str]) -> ClusterMetadataView:
-        metadata = self._admin.list_topics(timeout=10.0)
+    async def cluster_metadata(self, topics: list[str]) -> ClusterMetadataView:
+        metadata = await self._list_topics()
         partitions: list[PartitionMetadata] = []
         for topic in topics:
             topic_meta = metadata.topics.get(topic)
@@ -100,12 +122,12 @@ class LiveKafkaGateway:
                 )
         return ClusterMetadataView(partitions=partitions)
 
-    def broker_jmx_metrics(
+    async def broker_jmx_metrics(
         self, broker_id: int, metric_names: list[str], window_minutes: int
     ) -> dict[str, list[MetricSample]]:
         # Point-in-time scrape of the Prometheus exporter; window_minutes is
         # accepted for interface parity with a future time-series backend.
-        metrics_text = self._scrape_metrics()
+        metrics_text = await self._scrape_metrics()
         now = datetime.now(UTC)
         result: dict[str, list[MetricSample]] = {name: [] for name in metric_names}
         for line in metrics_text.splitlines():
@@ -119,7 +141,13 @@ class LiveKafkaGateway:
             )
         return result
 
-    def consumer_group_offsets(self, group: str) -> dict[int, int]:
+    async def consumer_group_offsets(self, group: str) -> dict[int, int]:
+        assignment = await self._group_assignment(group)
+        # Consumer calls block: run the whole Consumer lifetime in one worker
+        # thread, so the Consumer is never shared across threads.
+        return await asyncio.to_thread(self._committed_offsets, group, assignment)
+
+    def _committed_offsets(self, group: str, assignment: list[tuple[str, int]]) -> dict[int, int]:
         # confluent-kafka's AdminClient offset-listing API varies by version;
         # use a throwaway Consumer bound to the group's committed offsets instead.
         consumer = Consumer(
@@ -131,22 +159,27 @@ class LiveKafkaGateway:
         )
         try:
             committed = consumer.committed(
-                [TopicPartition(t, p) for t, p in self._group_assignment(group)], timeout=10.0
+                [TopicPartition(t, p) for t, p in assignment], timeout=10.0
             )
             return {tp.partition: tp.offset for tp in committed if tp.offset >= 0}
         finally:
             consumer.close()
 
-    def _group_assignment(self, group: str) -> list[tuple[str, int]]:
+    async def _group_assignment(self, group: str) -> list[tuple[str, int]]:
         desc = self._admin.describe_consumer_groups([group])
-        result = desc[group].result(timeout=10.0)
+        result = await self._admin_result(desc[group])
         return [
             (tp.topic, tp.partition)
             for member in result.members
             for tp in member.assignment.topic_partitions
         ]
 
-    def topic_high_watermarks(self, topic: str) -> dict[int, int]:
+    async def topic_high_watermarks(self, topic: str) -> dict[int, int]:
+        # Metadata and per-partition watermark lookups all block; run them in
+        # one worker thread (see consumer_group_offsets).
+        return await asyncio.to_thread(self._high_watermarks, topic)
+
+    def _high_watermarks(self, topic: str) -> dict[int, int]:
         consumer = Consumer(
             {
                 "bootstrap.servers": self._bootstrap_servers,
@@ -169,13 +202,15 @@ class LiveKafkaGateway:
         finally:
             consumer.close()
 
-    def consumer_group_state_history(self, group: str, window_minutes: int) -> list[dict[str, Any]]:
+    async def consumer_group_state_history(
+        self, group: str, window_minutes: int
+    ) -> list[dict[str, Any]]:
         desc = self._admin.describe_consumer_groups([group])
-        result = desc[group].result(timeout=10.0)
+        result = await self._admin_result(desc[group])
         return [{"ts": datetime.now(UTC).isoformat(), "state": str(result.state)}]
 
-    def partition_throughput(self, topic: str, window_minutes: int) -> dict[int, float]:
-        metrics_text = self._scrape_metrics()
+    async def partition_throughput(self, topic: str, window_minutes: int) -> dict[int, float]:
+        metrics_text = await self._scrape_metrics()
         result: dict[int, float] = {}
         for line in metrics_text.splitlines():
             match = _PROMETHEUS_LINE_RE.match(line)
@@ -189,13 +224,13 @@ class LiveKafkaGateway:
                 result[int(pid_match.group(1))] = float(match.group("value"))
         return result
 
-    def schema_registry_subject(self, subject: str) -> dict[str, Any]:
+    async def schema_registry_subject(self, subject: str) -> dict[str, Any]:
         # Confluent's compatibility-check endpoint is POST-only and requires a
         # candidate schema body this tool doesn't have; treat any non-2xx
         # response (404 subject-not-found, 405 wrong-method, etc.) as "no
         # compatibility signal available" rather than crashing the session.
         try:
-            resp = self._http.get(
+            resp = await self._http.get(
                 f"{self._schema_registry_url}/compatibility/subjects/{subject}/versions/latest"
             )
             resp.raise_for_status()

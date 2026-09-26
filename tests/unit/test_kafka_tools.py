@@ -352,7 +352,7 @@ class _SchemaRegistryReturns(FixtureKafkaGateway):
         super().__init__(FIXTURE_DIR / "healthy_baseline.json")
         self._body = body
 
-    def schema_registry_subject(self, subject):
+    async def schema_registry_subject(self, subject):
         return self._body
 
 

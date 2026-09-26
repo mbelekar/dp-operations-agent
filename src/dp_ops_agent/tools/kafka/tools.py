@@ -75,7 +75,7 @@ def build_kafka_tools(
         incident window. Signals a broker failure, disk pressure, or network
         partition."""
         now = datetime.now(UTC)
-        meta = gateway.cluster_metadata(topics)
+        meta = await gateway.cluster_metadata(topics)
         partitions = [
             PartitionState(
                 topic=p.topic,
@@ -91,7 +91,7 @@ def build_kafka_tools(
         observed = UnderReplicatedPartitionsObserved(partitions=partitions)
         if not partitions:
             severity: Severity = "unknown"
-            known_topics = gateway.list_topics()
+            known_topics = await gateway.list_topics()
             missing = [t for t in topics if t not in known_topics]
             observed.no_data_reason = _no_data_reason(
                 "topic",
@@ -120,7 +120,7 @@ def build_kafka_tools(
         instability. broker_id: the brokers hosting a topic are the numbers
         in under_replicated_partitions' replicas lists; check each one."""
         now = datetime.now(UTC)
-        metrics = gateway.broker_jmx_metrics(
+        metrics = await gateway.broker_jmx_metrics(
             broker_id, ["IsrShrinksPerSec", "IsrExpandsPerSec"], window_minutes
         )
         shrinks = [s.value for s in metrics.get("IsrShrinksPerSec", [])]
@@ -133,7 +133,7 @@ def build_kafka_tools(
         )
         if not shrinks and not expands:
             severity: Severity = "unknown"
-            known_brokers = gateway.list_brokers()
+            known_brokers = await gateway.list_brokers()
             observed.no_data_reason = _no_data_reason(
                 "broker", broker_id, known_brokers, "reports no ISR shrink/expand metrics"
             )
@@ -160,8 +160,8 @@ def build_kafka_tools(
         can't keep up; flat-high means a stuck consumer; a sudden spike means an
         upstream burst."""
         now = datetime.now(UTC)
-        offsets = gateway.consumer_group_offsets(group)
-        watermarks = gateway.topic_high_watermarks(topic)
+        offsets = await gateway.consumer_group_offsets(group)
+        watermarks = await gateway.topic_high_watermarks(topic)
         # A partition with no committed offset has no measurable lag; treating
         # the missing offset as 0 would report the whole topic as lag.
         lag_by_partition = {
@@ -176,14 +176,14 @@ def build_kafka_tools(
         )
         if not watermarks:
             severity: Severity = "unknown"
-            known_topics = gateway.list_topics()
+            known_topics = await gateway.list_topics()
             observed.no_data_reason = _no_data_reason(
                 "topic", topic, known_topics, "reports no partition high watermarks"
             )
             observed.known_topics = capped(known_topics)
         elif not lag_by_partition:
             severity = "unknown"
-            known_groups = gateway.list_consumer_groups()
+            known_groups = await gateway.list_consumer_groups()
             observed.no_data_reason = _no_data_reason(
                 "consumer group",
                 group,
@@ -210,7 +210,7 @@ def build_kafka_tools(
         rebalance storms. Frequent rebalancing signals a session-timeout
         misconfig, a slow poll loop, or a crash-looping consumer."""
         now = datetime.now(UTC)
-        history = gateway.consumer_group_state_history(group, window_minutes)
+        history = await gateway.consumer_group_state_history(group, window_minutes)
         rebalance_states = {"PreparingRebalance", "CompletingRebalance"}
         rebalance_count = sum(1 for h in history if h.get("state") in rebalance_states)
         observed = RebalanceFrequencyObserved(
@@ -218,7 +218,7 @@ def build_kafka_tools(
         )
         if not history:
             severity: Severity = "unknown"
-            known_groups = gateway.list_consumer_groups()
+            known_groups = await gateway.list_consumer_groups()
             observed.no_data_reason = _no_data_reason(
                 "consumer group", group, known_groups, "has no state history"
             )
@@ -244,7 +244,7 @@ def build_kafka_tools(
         High skew signals a poor partition key choice or a single noisy
         producer."""
         now = datetime.now(UTC)
-        throughput = gateway.partition_throughput(topic, window_minutes)
+        throughput = await gateway.partition_throughput(topic, window_minutes)
         values = list(throughput.values())
         avg = sum(values) / len(values) if values else 0.0
         max_val = max(values, default=0.0)
@@ -256,7 +256,7 @@ def build_kafka_tools(
         )
         if not throughput:
             severity: Severity = "unknown"
-            known_topics = gateway.list_topics()
+            known_topics = await gateway.list_topics()
             observed.no_data_reason = _no_data_reason(
                 "topic", topic, known_topics, "reports no per-partition throughput"
             )
@@ -280,14 +280,14 @@ def build_kafka_tools(
         compatibility failure. A failure signals a producer shipped an
         incompatible schema change."""
         now = datetime.now(UTC)
-        result = gateway.schema_registry_subject(subject)
+        result = await gateway.schema_registry_subject(subject)
         verdict = result.get("is_compatible") if result else None
         if not isinstance(verdict, bool):
             # An empty or unrecognized response is no compatibility verdict at
             # all, not a compatible one. Only a real boolean is a verdict: a
             # "false" string or a 1 isn't coerced into one.
             severity: Severity = "unknown"
-            known_subjects = gateway.list_schema_subjects()
+            known_subjects = await gateway.list_schema_subjects()
             observed = SchemaRegistryCompatObserved(
                 raw=result,
                 is_compatible=None,

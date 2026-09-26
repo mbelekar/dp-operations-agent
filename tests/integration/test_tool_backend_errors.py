@@ -91,7 +91,7 @@ class _FailingKafkaGateway(FixtureKafkaGateway):
         super().__init__(fixture)
         self._exc = exc
 
-    def partition_throughput(self, topic: str, window_minutes: int) -> dict[int, float]:
+    async def partition_throughput(self, topic: str, window_minutes: int) -> dict[int, float]:
         raise self._exc
 
 

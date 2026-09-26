@@ -16,13 +16,13 @@ from dp_ops_agent.tools.kafka.live_gateway import LiveKafkaGateway
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "kafka"
 
 
-def test_fixture_lists_identifiers_from_the_snapshot():
+async def test_fixture_lists_identifiers_from_the_snapshot():
     gateway = FixtureKafkaGateway(FIXTURE_DIR / "healthy_baseline.json")
 
-    assert gateway.list_topics() == ["orders"]
-    assert gateway.list_consumer_groups() == ["billing-svc"]
-    assert gateway.list_brokers() == [1]
-    assert gateway.list_schema_subjects() == ["orders-value"]
+    assert await gateway.list_topics() == ["orders"]
+    assert await gateway.list_consumer_groups() == ["billing-svc"]
+    assert await gateway.list_brokers() == [1]
+    assert await gateway.list_schema_subjects() == ["orders-value"]
 
 
 class _FakeAdmin:
@@ -57,7 +57,7 @@ class _FakeAdmin:
 def _live() -> LiveKafkaGateway:
     gateway = LiveKafkaGateway("localhost:1", "http://jmx:5559", "http://schema-registry:8081")
     gateway._admin = _FakeAdmin()
-    gateway._http = httpx.Client(
+    gateway._http = httpx.AsyncClient(
         transport=httpx.MockTransport(
             lambda request: (
                 httpx.Response(200, json=["orders-value", "orders-sink-value"])
@@ -69,16 +69,16 @@ def _live() -> LiveKafkaGateway:
     return gateway
 
 
-def test_live_lists_topics_without_internal_ones():
-    assert _live().list_topics() == ["orders", "orders-sink"]
+async def test_live_lists_topics_without_internal_ones():
+    assert await _live().list_topics() == ["orders", "orders-sink"]
 
 
-def test_live_lists_brokers_and_groups_sorted():
+async def test_live_lists_brokers_and_groups_sorted():
     gateway = _live()
 
-    assert gateway.list_brokers() == [1, 2, 3]
-    assert gateway.list_consumer_groups() == ["billing-svc", "flink-orders-processing"]
+    assert await gateway.list_brokers() == [1, 2, 3]
+    assert await gateway.list_consumer_groups() == ["billing-svc", "flink-orders-processing"]
 
 
-def test_live_lists_schema_subjects():
-    assert _live().list_schema_subjects() == ["orders-sink-value", "orders-value"]
+async def test_live_lists_schema_subjects():
+    assert await _live().list_schema_subjects() == ["orders-sink-value", "orders-value"]

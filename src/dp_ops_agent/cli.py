@@ -27,7 +27,6 @@ from dp_ops_agent.tools.dbt.live_gateway import LiveDbtGateway
 from dp_ops_agent.tools.flink.fixture_gateway import FixtureFlinkGateway
 from dp_ops_agent.tools.flink.live_gateway import LiveFlinkGateway
 from dp_ops_agent.tools.kafka.fixture_gateway import FixtureKafkaGateway
-from dp_ops_agent.tools.kafka.gateway import KafkaMetricsGateway
 from dp_ops_agent.tools.kafka.live_gateway import LiveKafkaGateway
 from dp_ops_agent.tools.lineage.fixture_gateway import FixtureLineageGateway
 from dp_ops_agent.tools.lineage.live_gateway import LiveLineageGateway
@@ -232,11 +231,12 @@ async def _run_live(
     their HTTP clients when the diagnosis ends, however it ends: an
     httpx.AsyncClient must be closed in the loop that used it."""
     async with AsyncExitStack() as stack:
-        kafka_gateway: KafkaMetricsGateway = LiveKafkaGateway(
+        kafka = LiveKafkaGateway(
             bootstrap_servers=kafka_bootstrap_servers,
             jmx_exporter_base_url=kafka_jmx_url,
             schema_registry_url=schema_registry_url,
         )
+        stack.push_async_callback(kafka.aclose)
         flink = LiveFlinkGateway(flink_rest_url)
         stack.push_async_callback(flink.aclose)
         lineage = LiveLineageGateway(marquez_url)
@@ -245,7 +245,7 @@ async def _run_live(
         return await run_diagnosis(
             session_id=session_id,
             alert_text=alert_text,
-            kafka_gateway=kafka_gateway,
+            kafka_gateway=kafka,
             flink_gateway=flink,
             lineage_gateway=lineage,
             dbt_gateway=dbt_gateway,

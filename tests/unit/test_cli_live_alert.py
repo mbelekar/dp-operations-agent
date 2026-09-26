@@ -1,5 +1,6 @@
 from datetime import UTC
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -177,8 +178,19 @@ def _spy_on_gateway_closes(monkeypatch) -> list:
 
     monkeypatch.setattr(cli, "LiveLineageGateway", recording(LiveLineageGateway))
     monkeypatch.setattr(cli, "LiveFlinkGateway", recording(LiveFlinkGateway))
-    # No broker in unit tests: don't let librdkafka start connecting.
-    monkeypatch.setattr(cli, "LiveKafkaGateway", lambda **kwargs: object())
+
+    class _KafkaStub:
+        """No broker in unit tests: don't let librdkafka start connecting.
+        Stands in for LiveKafkaGateway's client lifecycle only."""
+
+        def __init__(self, **kwargs):
+            self._http = SimpleNamespace(is_closed=False)
+            built.append(self)
+
+        async def aclose(self):
+            self._http.is_closed = True
+
+    monkeypatch.setattr(cli, "LiveKafkaGateway", _KafkaStub)
     return built
 
 
@@ -192,6 +204,7 @@ def test_live_diagnosis_closes_the_gateways_http_clients(tmp_path, monkeypatch):
     assert {type(g).__mro__[1].__name__ for g in built} == {
         "LiveLineageGateway",
         "LiveFlinkGateway",
+        "object",  # the Kafka stub
     }
     assert all(g._http.is_closed for g in built)
 
@@ -212,5 +225,5 @@ def test_live_diagnosis_closes_the_http_clients_when_it_fails(tmp_path, monkeypa
     result = CliRunner().invoke(app, _live_args(tmp_path))
 
     assert result.exit_code != 0
-    assert len(built) == 2
+    assert len(built) == 3
     assert all(g._http.is_closed for g in built)

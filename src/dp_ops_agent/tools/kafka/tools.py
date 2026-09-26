@@ -7,7 +7,7 @@ from langchain_core.tools import BaseTool, tool
 
 from dp_ops_agent.audit.models import AuditEvent
 from dp_ops_agent.audit.sink import AuditSink
-from dp_ops_agent.evidence.schema import Signal
+from dp_ops_agent.evidence.schema import Severity, Signal
 from dp_ops_agent.tools.kafka.gateway import KafkaMetricsGateway
 from dp_ops_agent.tools.known_identifiers import capped, describe
 
@@ -70,7 +70,7 @@ def build_kafka_tools(
         critical = any(p["under_replicated"] or p["offline"] for p in partitions)
         observed: dict = {"partitions": partitions}
         if not partitions:
-            severity = "unknown"
+            severity: Severity = "unknown"
             known_topics = gateway.list_topics()
             missing = [t for t in topics if t not in known_topics]
             observed.update(
@@ -116,7 +116,7 @@ def build_kafka_tools(
             "max_shrink_rate": max_shrink_rate,
         }
         if not shrinks and not expands:
-            severity = "unknown"
+            severity: Severity = "unknown"
             observed.update(
                 _no_data(
                     "known_brokers",
@@ -165,7 +165,7 @@ def build_kafka_tools(
             "partitions_without_committed_offset": without_offset,
         }
         if not watermarks:
-            severity = "unknown"
+            severity: Severity = "unknown"
             observed.update(
                 _no_data(
                     "known_topics",
@@ -212,7 +212,7 @@ def build_kafka_tools(
         rebalance_count = sum(1 for h in history if h.get("state") in rebalance_states)
         observed = {"state_history": history, "rebalance_count": rebalance_count}
         if not history:
-            severity = "unknown"
+            severity: Severity = "unknown"
             observed.update(
                 _no_data(
                     "known_groups",
@@ -256,7 +256,7 @@ def build_kafka_tools(
             "skew_ratio": skew_ratio,
         }
         if not throughput:
-            severity = "unknown"
+            severity: Severity = "unknown"
             observed.update(
                 _no_data(
                     "known_topics",
@@ -292,7 +292,7 @@ def build_kafka_tools(
         if not result or "is_compatible" not in result:
             # An empty or unrecognized response is no compatibility verdict at
             # all, not a compatible one.
-            severity = "unknown"
+            severity: Severity = "unknown"
             observed["is_compatible"] = None
             observed.update(
                 _no_data(

@@ -6,7 +6,7 @@ from langchain_core.tools import BaseTool, tool
 
 from dp_ops_agent.audit.models import AuditEvent
 from dp_ops_agent.audit.sink import AuditSink
-from dp_ops_agent.evidence.schema import Signal
+from dp_ops_agent.evidence.schema import Severity, Signal
 from dp_ops_agent.tools.lineage.gateway import LineageQueryGateway
 
 
@@ -52,7 +52,7 @@ def build_lineage_tools(
         upstream_nodes = [{"id": n.id, "type": n.type} for n in view.nodes]
         observed: dict = {"upstream_nodes": upstream_nodes}
         if view.node_found:
-            severity = "ok"
+            severity: Severity = "ok"
         else:
             severity = "unknown"
             observed["no_data_reason"] = (

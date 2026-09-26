@@ -7,7 +7,7 @@ from langchain_core.tools import BaseTool, tool
 
 from dp_ops_agent.audit.models import AuditEvent
 from dp_ops_agent.audit.sink import AuditSink
-from dp_ops_agent.evidence.schema import Signal
+from dp_ops_agent.evidence.schema import Severity, Signal
 from dp_ops_agent.tools.flink.gateway import FlinkMetricsGateway, NamedId
 from dp_ops_agent.tools.known_identifiers import capped, describe
 
@@ -91,7 +91,7 @@ def build_flink_tools(
             "most_recent_status": view.history[-1].status if view.history else None,
         }
         if view.counts.total == 0 and not view.history:
-            severity = "unknown"
+            severity: Severity = "unknown"
             jobs = gateway.list_jobs()
             observed["known_jobs"] = _refs(jobs)
             if any(j.id == job_id for j in jobs):
@@ -131,7 +131,7 @@ def build_flink_tools(
             "subtasks": [s.model_dump() for s in view.subtasks],
         }
         if not view.subtasks:
-            severity = "unknown"
+            severity: Severity = "unknown"
             observed.update(_no_vertex_data(job_id, vertex_id, "backpressure samples"))
         else:
             severity = "critical" if level == "high" else ("warn" if level == "low" else "ok")
@@ -161,7 +161,7 @@ def build_flink_tools(
             "max_lag_ms": max_lag_ms,
         }
         if not lag_by_subtask:
-            severity = "unknown"
+            severity: Severity = "unknown"
             observed.update(_no_vertex_data(job_id, vertex_id, "watermark metrics"))
         else:
             severity = (
@@ -190,7 +190,7 @@ def build_flink_tools(
         disk_used_ratio = metrics.get("disk_used_ratio")
         observed = {"metrics": metrics}
         if disk_used_ratio is None:
-            severity = "unknown"
+            severity: Severity = "unknown"
             observed.update(_no_vertex_data(job_id, vertex_id, "disk_used_ratio metric"))
         elif disk_used_ratio > 0.9:
             severity = "critical"

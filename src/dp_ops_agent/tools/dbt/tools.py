@@ -24,7 +24,7 @@ from pydantic import TypeAdapter
 
 from dp_ops_agent.audit.models import AuditEvent
 from dp_ops_agent.audit.sink import AuditSink
-from dp_ops_agent.evidence.schema import Severity, Signal
+from dp_ops_agent.evidence.schema import Severity, Signal, SignalType
 from dp_ops_agent.tools.dbt.gateway import (
     DbtArtifactsGateway,
     ManifestNode,
@@ -128,7 +128,7 @@ def build_dbt_tools(
     collected_signals: list[Signal],
 ) -> list[BaseTool]:
     def _signal(
-        name: str,
+        name: SignalType,
         scope: dict[str, str],
         observed: dict[str, Any],
         severity: Severity,
@@ -148,7 +148,7 @@ def build_dbt_tools(
         )
         return _record_signal(audit, session_id, collected_signals, signal)
 
-    def _model_not_found(name: str, model: str, manifest: ManifestView) -> str:
+    def _model_not_found(name: SignalType, model: str, manifest: ManifestView) -> str:
         known = sorted(n.name for n in manifest.nodes.values() if n.resource_type == "model")
         return _signal(
             name,

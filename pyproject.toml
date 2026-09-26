@@ -87,3 +87,9 @@ branch = false
 fail_under = 90
 show_missing = true
 skip_covered = true
+
+[tool.pydantic-mypy]
+# Type-check pydantic model constructor arguments. Without this the plugin
+# types every __init__ argument as Any, so a wrong value type, or a plain str
+# where a Literal is expected, is only caught at runtime.
+init_typed = true

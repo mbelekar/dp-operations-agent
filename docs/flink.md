@@ -1,39 +1,82 @@
-# Flink diagnostic module
+# Flink diagnostics
 
-**Status: Implemented (Phase 2a).** Cross-system localization is now available too, see [`lineage.md`](lineage.md) (Phase 2b): an alert naming a Flink job can be traced upstream to a Kafka root cause, and the model is instructed to check before concluding a single-system hypothesis. See [`kafka.md`](kafka.md) for the module this one mirrors, and [`dbt.md`](dbt.md) (Phase 3a) for the dbt module.
+**Status:** Phase 2a
 
-## What it does
+The agent can inspect a Flink job, identify likely failures, and compare the result with Kafka evidence in the same diagnosis session.
 
-Given an incident alert naming a Flink job (e.g. "repeated checkpoint failures on orders-processing-job"), the agent investigates using five read-only Flink diagnostic tools, on top of the six Kafka tools from Phase 1, all in the same session. The grounding mechanism is identical to Kafka's: every claim in the final diagnosis has to trace back to a real tool call. See [`kafka.md`'s grounding section](kafka.md#evidence-grounding) rather than repeating it here. The mechanism is shared code (`evidence/schema.py`, `tools/registry.py`), not reimplemented per module.
+Cross-system localization through lineage is planned for Phase 2b. dbt support is planned for Phase 3a.
 
-## Signals collected
+## What the agent checks
 
-| Tool | File | What it detects |
+The agent exposes five read-only Flink tools:
+
+| Check | What it can reveal |
+| --- | --- |
+| Checkpoint failures | Repeated or recent failures, growing state, a slow sink, or upstream barrier backpressure |
+| Backpressure ratio | The vertex causing a processing bottleneck |
+| Watermark lag | Event-time skew or a stalled Kafka partition |
+| State backend disk pressure | RocksDB or TaskManager disk pressure, state skew, missing TTL, or an unbounded window |
+| Savepoint restore failures | State that became incompatible after changing the job graph or operator UIDs |
+
+Kafka and Flink tools are available together, so the agent can distinguish an upstream Kafka problem from a Flink processing problem.
+
+## How a diagnosis works
+
+1. The agent reads the alert.
+2. It checks relevant Kafka and Flink signals.
+3. It compares the evidence across systems.
+4. It reports the most likely root cause and cites the signals that support it.
+
+The diagnosis system is derived from the selected `root_cause_signal_id`. The caller or model cannot set it independently. See [ADR-0007](decisions/0007-root-cause-signal-id.md).
+
+## Missing data
+
+Missing data does not automatically mean the system is healthy.
+
+If a job or vertex cannot be found, the tool returns:
+
+- severity `unknown`;
+- an `observed.no_data_reason` value; and
+- known job or vertex IDs, so the agent can retry once with a valid ID.
+
+Flink vertex IDs are hexadecimal. Always pass the live vertex ID, not its display name.
+
+If the vertex exists but the requested metric is absent, the response explains that retrying will not help.
+
+Savepoint checks are slightly different: an existing job with an empty exception history is considered healthy.
+
+For the full design rationale, see [ADR-0009](decisions/0009-no-data-is-unknown-not-ok.md).
+
+## Data sources
+
+The Flink tools use one of two gateways:
+
+| Gateway | Use case | Behavior |
 | --- | --- | --- |
-| `checkpoint_failure` | `tools/flink/tools.py` | Growing state size, slow sink, or backpressure upstream of the barrier (repeated or most-recent checkpoint failures) |
-| `backpressure_ratio` | `tools/flink/tools.py` | Localizes the actual bottleneck operator, not just "the job is slow" (per-vertex backpressure level) |
-| `watermark_lag` | `tools/flink/tools.py` | Event-time skew, often caused by a stalled upstream Kafka partition (per-subtask watermark lag) |
-| `state_backend_disk_pressure` | `tools/flink/tools.py` | State growth from a skewed key, missing TTL, or an unbounded window (RocksDB/TaskManager disk usage ratio) |
-| `savepoint_restore_failure` | `tools/flink/tools.py` | Incompatible state schema after a job graph or operator UID change |
+| `LiveFlinkGateway` | Live infrastructure | Reads four Flink REST endpoints. It has been verified against the API documentation and a real Flink job. |
+| `FixtureFlinkGateway` | Local demos, tests, and evaluations | Reads deterministic JSON fixtures. A missing vertex returns `not_found`, which becomes an `unknown` signal. |
 
-One signal is weaker than the other four, worth knowing before trusting it. Flink's REST API has no dedicated field for "savepoint restore failure", there is no clean status check the way `checkpoint_failure` has `counts.failed`. It is inferred from the job's exception history (`GET /jobs/:id/exceptions`), matching exception text against a small keyword list (`savepoint`, `incompatible state`, `state schema`). This is a heuristic, not a structured signal, and it is documented as such in the tool's own docstring, not just here.
+### Savepoint restore detection
 
-A tool that finds no data for the job or vertex it was given (no watermark metrics, no backpressure samples, no `disk_used_ratio`, no checkpoints recorded) reports severity `unknown` with an `observed.no_data_reason`, never `ok`, so querying the wrong vertex can't read as a healthy one. The result also lists the job's vertices (`known_vertices`, each `{id, name}`; live vertex ids are hex, and tools take the id) or, for an unknown job, `known_jobs`, so the model's one allowed retry lands on a real vertex instead of a guess. A vertex that exists but lacks the metric says so and not to retry it. `savepoint_restore_failure` is the exception: for a job that exists, an empty exception history really is healthy. See [ADR-0009](decisions/0009-no-data-is-unknown-not-ok.md).
+Flink's REST API has no direct “savepoint restore failed” field. The tool therefore scans `/jobs/:id/exceptions` for terms such as `savepoint`, `incompatible state`, and `state schema`.
 
-## The gateway abstraction: one seam, two implementations
+This is a heuristic, so treat it as supporting evidence rather than a perfect classifier.
 
-Same pattern as Kafka: every Flink tool talks through the `FlinkMetricsGateway` Protocol (`tools/flink/gateway.py`), never calling the Flink REST API directly.
+### Watermark metric names
 
-- **`LiveFlinkGateway`** (`tools/flink/live_gateway.py`): the real implementation. Uses `httpx` against the Flink JobManager REST API (`/jobs/:id/checkpoints`, `/jobs/:id/vertices/:id/backpressure`, `/jobs/:id/vertices/:id/metrics`, `/jobs/:id/exceptions`). All four endpoints were verified against Flink's real REST API docs before writing this module, and later against a real running job, see [`docs/docker.md`](docker.md). Backpressure's field names came back exactly as assumed. The watermark metric's naming convention turned out to include an operator-name segment that wasn't anticipated (`<subtask>.<operatorName>.currentInputWatermark`, not the bare `<subtask>.currentInputWatermark` originally assumed), which is harmless for the current single-vertex topology but is a known rough edge for a vertex chaining multiple operators. Flagged in the file's own docstring.
-- **`FixtureFlinkGateway`** (`tools/flink/fixture_gateway.py`): loads a JSON snapshot, same contract as `FixtureKafkaGateway`. Deterministic responses; anything not in the snapshot comes back empty (a missing vertex's backpressure is `status: "not_found"`, not a made-up `"ok"`), which the tools report as severity `unknown`.
+Flink exposes input watermarks with a metric name similar to:
 
-## Why Kafka, Flink, and lineage tools are all always available
-
-A session's tool list always includes Kafka, Flink, lineage, and (since Phase 3a) dbt tools, regardless of which system the alert names. This matters for one reason: `Diagnosis.system` is not set by the caller or asserted by the model. It is derived from the signal the model names as `root_cause_signal_id` in `submit_diagnosis` (see `_derive_system` in `tools/diagnosis_output/tools.py`, and [ADR-0007](decisions/0007-root-cause-signal-id.md)). That only works correctly if every system's tools are genuinely available in every session, a Kafka-only tool list would make `system` trivially always `"kafka"`, and without the lineage tool there'd be no way for a Flink-side alert to ever discover a Kafka root cause in the first place.
-
-## Example run
-
+```text
+<subtask>.<operatorName>.currentInputWatermark
 ```
+
+The operator-name segment makes discovery harder when several operators are chained into one vertex. This does not affect the current demo topology, which has one relevant operator per vertex.
+
+## Try it with fixtures
+
+Run a deterministic checkpoint-failure scenario:
+
+```bash
 dp-ops-agent diagnose \
   --fixture tests/fixtures/kafka/healthy_baseline.json \
   --flink-fixture tests/fixtures/flink/checkpoint_failure_incident.json \
@@ -42,10 +85,18 @@ dp-ops-agent diagnose \
   --alert-text "PagerDuty: repeated checkpoint failures on orders-processing-job"
 ```
 
-Kafka is healthy in this fixture. The model has to notice that and still correctly attribute the root cause to Flink, not because Kafka tools are unavailable, but because their own signals come back clean.
+In this example, Kafka is healthy. The agent should therefore attribute the incident to Flink using the checkpoint evidence.
 
-## Testing without live Flink
+## Tests
 
-- `tests/unit/test_flink_tools.py`: calls each tool's `.ainvoke(args)` directly against `FixtureFlinkGateway`. No LLM involved, mirrors `test_kafka_tools.py`.
-- `tests/integration/test_registry_wiring.py`: includes a Flink-specific wiring test alongside the Kafka ones, confirming a Flink signal is citable in `submit_diagnosis` and that `Diagnosis.system` derives to `"flink"` when a Flink signal is what's actually cited.
-- `evals/scenarios.py`: one Flink scenario (`flink_checkpoint_failure`) alongside the four Kafka scenarios, run via `./auto/eval` against a live model.
+| Coverage | Location |
+| --- | --- |
+| Flink tool behavior | `tests/unit/test_flink_tools.py` |
+| Tool registry wiring | `tests/integration/test_registry_wiring.py` |
+| Checkpoint-failure evaluation | `flink_checkpoint_failure` scenario |
+
+Run the evaluation suite with:
+
+```bash
+./auto/eval
+```

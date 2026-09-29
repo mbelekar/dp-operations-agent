@@ -6,6 +6,7 @@ Snapshot shape (all keys optional; missing lookups return empty results):
   "checkpoint_history": {"<job_id>": {"counts": {...}, "history": [...]}},
   "backpressure": {"<job_id>": {"<vertex_id>": {"status", "backpressure_level", "subtasks"}}},
   "watermark_lag": {"<job_id>": {"<vertex_id>": {"<subtask>": <lag_ms>}}},
+  "source_activity": {"<job_id>": {"<vertex_id>": {"pending_records", "idle_ms"}}},
   "task_manager_disk_metrics": {"<job_id>": {"<vertex_id>": {"<metric_name>": <value>}}},
   "job_exceptions": {"<job_id>": [{"timestamp": ..., "exception": ...}, ...]}
 }
@@ -22,16 +23,23 @@ from dp_ops_agent.tools.flink.gateway import (
     CheckpointCounts,
     CheckpointHistoryView,
     NamedId,
+    SourceActivity,
 )
 
 _JOB_SECTIONS = (
     "checkpoint_history",
     "backpressure",
     "watermark_lag",
+    "source_activity",
     "task_manager_disk_metrics",
     "job_exceptions",
 )
-_VERTEX_SECTIONS = ("backpressure", "watermark_lag", "task_manager_disk_metrics")
+_VERTEX_SECTIONS = (
+    "backpressure",
+    "watermark_lag",
+    "source_activity",
+    "task_manager_disk_metrics",
+)
 
 
 class FixtureFlinkGateway:
@@ -80,6 +88,10 @@ class FixtureFlinkGateway:
     async def watermark_lag(self, job_id: str, vertex_id: str) -> dict[int, float]:
         raw = self._data.get("watermark_lag", {}).get(job_id, {}).get(vertex_id, {})
         return {int(k): float(v) for k, v in raw.items()}
+
+    async def source_activity(self, job_id: str, vertex_id: str) -> SourceActivity | None:
+        raw = self._data.get("source_activity", {}).get(job_id, {}).get(vertex_id)
+        return SourceActivity(**raw) if raw is not None else None
 
     async def task_manager_disk_metrics(self, job_id: str, vertex_id: str) -> dict[str, float]:
         raw = self._data.get("task_manager_disk_metrics", {}).get(job_id, {}).get(vertex_id, {})

@@ -172,7 +172,11 @@ def build_flink_tools(
     async def watermark_lag(job_id: str, vertex_id: str) -> str:
         """Report event-time watermark lag per subtask for a Flink job
         vertex. Signals event-time skew, often caused by a stalled upstream
-        Kafka partition."""
+        Kafka partition. On a source vertex it also reports records still
+        waiting in Kafka and how long the source has been idle: a large lag
+        with nothing waiting means the job is caught up and no new input is
+        arriving, either a quiet stream or an upstream stall, so check
+        upstream."""
         now = datetime.now(UTC)
         lag_by_subtask = await gateway.watermark_lag(job_id, vertex_id)
         max_lag_ms = max(lag_by_subtask.values(), default=0.0)
@@ -187,6 +191,18 @@ def build_flink_tools(
             severity = (
                 "critical" if max_lag_ms > 60_000 else ("warn" if max_lag_ms > 10_000 else "ok")
             )
+            activity = await gateway.source_activity(job_id, vertex_id)
+            if activity is not None:
+                observed.source_pending_records = activity.pending_records
+                observed.source_idle_ms = activity.idle_ms
+                # Caught up and idle: the lag is time since the last input,
+                # not a backlog, so it can't be critical on its own.
+                if (
+                    activity.pending_records == 0
+                    and activity.idle_ms > 0
+                    and severity == "critical"
+                ):
+                    severity = "warn"
         signal = WatermarkLagSignal(
             collected_at=now,
             window_start=now,

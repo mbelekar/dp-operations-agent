@@ -51,6 +51,14 @@ class BackpressureView(BaseModel):
     subtasks: list[SubtaskBackpressure]
 
 
+class SourceActivity(BaseModel):
+    """Whether a vertex's source is caught up: records still in Kafka waiting
+    to be fetched, and how long since the source last emitted one."""
+
+    pending_records: int
+    idle_ms: int
+
+
 class NamedId(BaseModel):
     """A job or vertex as the REST API identifies it: tools take the id, the
     name is what a human (or the model) recognizes it by. Live ids are hex."""
@@ -71,6 +79,9 @@ class FlinkMetricsGateway(Protocol):
     async def backpressure(self, job_id: str, vertex_id: str) -> BackpressureView: ...
 
     async def watermark_lag(self, job_id: str, vertex_id: str) -> dict[int, float]: ...
+
+    # None when the vertex has no source operator.
+    async def source_activity(self, job_id: str, vertex_id: str) -> SourceActivity | None: ...
 
     async def task_manager_disk_metrics(self, job_id: str, vertex_id: str) -> dict[str, float]: ...
 

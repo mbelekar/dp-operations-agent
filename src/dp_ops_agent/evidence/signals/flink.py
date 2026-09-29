@@ -75,6 +75,8 @@ class WatermarkLagObserved(Payload):
     # From a gateway dict, not a pydantic model: keep the gateway's number type.
     lag_ms_by_subtask: dict[str, int | float]
     max_lag_ms: int | float
+    source_pending_records: Absent[int] = None
+    source_idle_ms: Absent[int] = None
     no_data_reason: Absent[str] = None
     known_vertices: Absent[list[NamedRef]] = None
     known_jobs: Absent[list[NamedRef]] = None

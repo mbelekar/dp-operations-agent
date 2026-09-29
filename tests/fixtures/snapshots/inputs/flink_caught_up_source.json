@@ -1,0 +1,6 @@
+{
+  "watermark_lag": {"orders-processing-job": {"source": {"0": 184000.0}}},
+  "source_activity": {
+    "orders-processing-job": {"source": {"pending_records": 0, "idle_ms": 121939}}
+  }
+}

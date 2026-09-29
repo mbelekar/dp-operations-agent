@@ -37,6 +37,7 @@ from dp_ops_agent.tools.flink.gateway import (
     CheckpointHistoryEntry,
     CheckpointHistoryView,
     NamedId,
+    SourceActivity,
     SubtaskBackpressure,
 )
 from dp_ops_agent.tools.url_path import segment
@@ -124,6 +125,32 @@ class LiveFlinkGateway:
                 continue  # no watermark emitted yet
             result[int(subtask_str)] = max(0.0, now_ms - watermark_ms)
         return result
+
+    async def source_activity(self, job_id: str, vertex_id: str) -> SourceActivity | None:
+        # Flink's standard source metrics (FLIP-33), per subtask:
+        # "<subtask>.Source__<name>.pendingRecords" and "...sourceIdleTime".
+        metric_ids = [
+            m
+            for m in await self._available_metric_ids(job_id, vertex_id)
+            if m.endswith((".pendingRecords", ".sourceIdleTime"))
+        ]
+        if not metric_ids:
+            return None
+        resp = await self._http.get(
+            f"{self._base_url}/jobs/{segment(job_id)}/vertices/{segment(vertex_id)}/metrics",
+            params={"get": ",".join(metric_ids)},
+        )
+        resp.raise_for_status()
+        pending: list[int] = []
+        idle: list[int] = []
+        for entry in resp.json():
+            value = int(float(entry["value"]))
+            (pending if entry["id"].endswith(".pendingRecords") else idle).append(value)
+        if not pending or not idle:
+            return None
+        # Summed and min'd across subtasks: one subtask with a backlog, or one
+        # still emitting, means the source as a whole isn't caught up and quiet.
+        return SourceActivity(pending_records=sum(pending), idle_ms=min(idle))
 
     async def task_manager_disk_metrics(self, job_id: str, vertex_id: str) -> dict[str, float]:
         metric_ids = [

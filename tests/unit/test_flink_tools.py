@@ -254,3 +254,46 @@ async def test_tools_collect_typed_signals(
     assert type(signal) is signal_class
     assert type(signal.scope) is scope_class
     assert type(signal.observed) is observed_class
+
+
+async def _watermark_signal(tmp_path, source_activity: dict | None) -> Signal:
+    data: dict = {"watermark_lag": {"job": {"source": {"0": 184000.0}}}}
+    if source_activity is not None:
+        data["source_activity"] = {"job": {"source": source_activity}}
+    fixture = tmp_path / "watermark.json"
+    fixture.write_text(json.dumps(data))
+    tools = {
+        t.name: t
+        for t in build_flink_tools(
+            FixtureFlinkGateway(fixture), JsonlAuditSink(tmp_path, "s"), "s", []
+        )
+    }
+    return _signal_from_result(
+        await tools["watermark_lag"].ainvoke({"job_id": "job", "vertex_id": "source"})
+    )
+
+
+@pytest.mark.asyncio
+async def test_watermark_lag_on_a_caught_up_idle_source_is_at_most_warn(tmp_path):
+    # The live demo job after reading its seed data: nothing waiting, source
+    # idle, lag growing only because no new input arrives.
+    signal = await _watermark_signal(tmp_path, {"pending_records": 0, "idle_ms": 121939})
+
+    assert signal.severity == "warn"
+    assert signal.observed.source_pending_records == 0
+    assert signal.observed.source_idle_ms == 121939
+
+
+@pytest.mark.asyncio
+async def test_watermark_lag_with_records_waiting_stays_critical(tmp_path):
+    signal = await _watermark_signal(tmp_path, {"pending_records": 5000, "idle_ms": 121939})
+
+    assert signal.severity == "critical"
+
+
+@pytest.mark.asyncio
+async def test_watermark_lag_without_source_activity_is_unchanged(tmp_path):
+    signal = await _watermark_signal(tmp_path, None)
+
+    assert signal.severity == "critical"
+    assert signal.observed.source_pending_records is None

@@ -72,6 +72,19 @@ Flink exposes input watermarks with a metric name similar to:
 
 The operator-name segment makes discovery harder when several operators are chained into one vertex. This does not affect the current demo topology, which has one relevant operator per vertex.
 
+### Watermark lag on a quiet source
+
+Watermark lag is the current time minus the newest event time the job has seen. When no new input arrives, the watermark stops moving and the lag keeps growing, even though the job has processed everything.
+
+On a vertex that contains the Kafka source, `watermark_lag` also reads two of Flink's standard source metrics:
+
+| Field | Flink metric | Meaning |
+| --- | --- | --- |
+| `source_pending_records` | `pendingRecords`, summed over subtasks | Records in Kafka the source hasn't fetched yet |
+| `source_idle_ms` | `sourceIdleTime`, smallest over subtasks | How long Flink reports the source as idle |
+
+If nothing is waiting and the source is idle, the job is caught up. A large lag then means no new input, which is either a quiet stream or an upstream stall. The tool caps severity at `warn` in that case. With records waiting, or on a vertex without a source, severity follows the usual thresholds.
+
 ## Try it with fixtures
 
 Run a deterministic checkpoint-failure scenario:

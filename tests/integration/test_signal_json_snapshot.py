@@ -347,6 +347,13 @@ CASES: list[Case] = [
     *_vertex_cases(
         "watermark_lag", _f("watermark_lag_cross_system_incident"), "source", "critical"
     ),
+    _flink(
+        "watermark_lag/caught-up-idle-source",
+        "watermark_lag",
+        {"job_id": "orders-processing-job", "vertex_id": "source"},
+        EDGE / "flink_caught_up_source.json",
+        "warn",
+    ),
     *_vertex_cases("state_backend_disk_pressure", _f("healthy_baseline"), "source", "ok"),
     _flink(
         "savepoint_restore_failure/no-match",

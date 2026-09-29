@@ -78,19 +78,21 @@ def test_build_tools_registers_every_tool(tmp_path):
 
 @pytest.mark.asyncio
 async def test_signal_from_dbt_tool_is_citable_in_submit_diagnosis(tmp_path):
-    tools, result_holder = _build_tools(tmp_path, "wiring-test-dbt")
+    tools, result_holder = _build_tools(
+        tmp_path,
+        "wiring-test-dbt",
+        dbt_fixture=FIXTURES / "dbt" / "model_logic_regression_incident.json",
+    )
 
-    tf_result = await tools["test_failure"].ainvoke({"model": "stg_orders"})
+    tf_result = await tools["test_failure"].ainvoke({"model": "fct_orders"})
     signal_id = json.loads(tf_result)["signal_id"]
 
     submit_result = await tools["submit_diagnosis"].ainvoke(
         {
-            "root_cause_hypothesis": "stg_orders tests are passing",
+            "root_cause_hypothesis": "fct_orders tests are failing",
             "root_cause_signal_id": signal_id,
             "confidence": "high",
-            "evidence_chain": [
-                {"step": 1, "signal_id": signal_id, "interpretation": "all tests pass"}
-            ],
+            "evidence_chain": [{"step": 1, "signal_id": signal_id, "interpretation": "tests fail"}],
         }
     )
 
@@ -124,18 +126,22 @@ async def test_signal_from_kafka_tool_is_citable_in_submit_diagnosis(tmp_path):
 
 @pytest.mark.asyncio
 async def test_signal_from_flink_tool_is_citable_in_submit_diagnosis(tmp_path):
-    tools, result_holder = _build_tools(tmp_path, "wiring-test-flink")
+    tools, result_holder = _build_tools(
+        tmp_path,
+        "wiring-test-flink",
+        flink_fixture=FIXTURES / "flink" / "checkpoint_failure_incident.json",
+    )
 
     cp_result = await tools["checkpoint_failure"].ainvoke({"job_id": "orders-processing-job"})
     signal_id = json.loads(cp_result)["signal_id"]
 
     submit_result = await tools["submit_diagnosis"].ainvoke(
         {
-            "root_cause_hypothesis": "Checkpointing is healthy",
+            "root_cause_hypothesis": "Checkpoints are failing",
             "root_cause_signal_id": signal_id,
             "confidence": "high",
             "evidence_chain": [
-                {"step": 1, "signal_id": signal_id, "interpretation": "checkpoint history is clean"}
+                {"step": 1, "signal_id": signal_id, "interpretation": "checkpoints fail"}
             ],
         }
     )
@@ -431,7 +437,11 @@ async def test_dbt_flagship_sink_vertex_is_unknown_not_nominal(tmp_path):
 
 
 async def _flink_signal_and_tools(tmp_path, session_id: str):
-    tools, result_holder = _build_tools(tmp_path, session_id)
+    tools, result_holder = _build_tools(
+        tmp_path,
+        session_id,
+        flink_fixture=FIXTURES / "flink" / "checkpoint_failure_incident.json",
+    )
     cp = json.loads(await tools["checkpoint_failure"].ainvoke({"job_id": "orders-processing-job"}))
     return tools, result_holder, cp["signal_id"]
 

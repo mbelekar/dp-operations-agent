@@ -182,6 +182,11 @@ class Diagnosis(BaseModel):
                 f"root_cause_signal_id {self.root_cause_signal_id!r} has severity 'unknown': "
                 "the tool found no data for it, so it can't be what a hypothesis rests on"
             )
+        if root_cause.severity == "ok":
+            raise ValueError(
+                f"root_cause_signal_id {self.root_cause_signal_id!r} has severity 'ok': "
+                "its tool found nothing wrong, so it can't be the root cause"
+            )
         self._check_proposal()
         return self
 

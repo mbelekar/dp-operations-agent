@@ -141,6 +141,13 @@ def test_unknown_signal_cannot_be_the_root_cause():
         _diagnosis(no_data, [no_data])
 
 
+def test_ok_signal_cannot_be_the_root_cause():
+    healthy = _make_signal(severity="ok")
+
+    with pytest.raises(ValidationError, match="severity 'ok'"):
+        _diagnosis(healthy, [healthy])
+
+
 def test_unknown_signal_can_still_be_cited_as_evidence():
     no_data = _make_signal(severity="unknown", observed={"no_data_reason": "no such vertex"})
     root = _make_signal()

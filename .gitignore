@@ -14,3 +14,4 @@ logs/evals/*.jsonl
 docs/plans/
 logs/
 tests/tmp/
+docker/flink-job/target/

@@ -739,5 +739,8 @@ async def test_kafka_replay_on_an_uninvestigated_group_is_rejected(tmp_path):
         tools, lag["signal_id"], [lag["signal_id"]], _replay("other-group", "orders")
     )
 
-    assert "replay_kafka_offsets targets group 'other-group', but no signal collected" in result
+    assert (
+        "replay_kafka_offsets targets group 'other-group', but no signal with data collected"
+        in result
+    )
     assert "diagnosis" not in result_holder

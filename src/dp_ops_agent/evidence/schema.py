@@ -205,10 +205,13 @@ class Diagnosis(BaseModel):
                 f"system {self.system!r}; propose an action on the root cause's system, "
                 "or no action (Tier 0)"
             )
-        covered = [s.scope.targets() for s in self.signals]
+        # An unknown signal's scope is just what the tool was asked about,
+        # found or not (ADR-0009), so it doesn't count as investigated.
+        covered = [s.scope.targets() for s in self.signals if s.severity != "unknown"]
         for key, value, target_set in _action_targets(action):
             if not any(value in target_set(t) for t in covered):
                 raise ValueError(
-                    f"{action.action_type} targets {key} {value!r}, but no signal collected "
-                    f"this session covered that {key}; act only on what was investigated"
+                    f"{action.action_type} targets {key} {value!r}, but no signal with data "
+                    f"collected this session covered that {key}; act only on what was "
+                    "investigated"
                 )

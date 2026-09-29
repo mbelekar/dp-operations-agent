@@ -43,14 +43,14 @@ A Kafka replay is Tier 1 only for one group, one partition, and at most 100,000 
 A proposal is rejected when:
 
 - its action changes a different system than the root-cause signal's system;
-- it targets a job, model, consumer group, or topic that no signal collected this session covered; or
+- it targets a job, model, consumer group, or topic that no signal collected this session covered, not counting signals with severity `unknown`; or
 - its tier doesn't match the tier derived from the action.
 
-The second rule extends evidence grounding from "cite only real evidence" to "act only on real targets". A Kafka replay's partition and offsets aren't in any signal's scope, so they are bounded by the Tier 1 limit rather than grounded.
+The second rule extends evidence grounding from "cite only real evidence" to "act only on real targets". An `unknown` signal doesn't count: its scope only records what the tool was asked about, not something it found. A Kafka replay's partition and offsets aren't in any signal's scope, so they are bounded by the Tier 1 limit rather than grounded.
 
 ## What a reviewer sees
 
-`dp-ops-agent diagnose` prints the proposal after the evidence chain. Values the tool can't know stay as `<placeholders>`.
+`dp-ops-agent diagnose` prints the proposal after the evidence chain. Values the tool can't know stay as `<placeholders>`. Identifiers are shell-quoted, so each one reaches the shell as a single argument whatever characters it contains.
 
 | Action | Command preview | Rollback |
 | --- | --- | --- |

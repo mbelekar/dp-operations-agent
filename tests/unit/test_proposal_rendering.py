@@ -3,6 +3,10 @@ plausible but wrong command is worse than none. Kafka syntax was run for real
 against cp-kafka 7.6.1; Flink and dbt checked against the stack's images'
 --help (see docs/plans/phase3b-proposals.md, "Task 3 findings")."""
 
+import shlex
+
+import pytest
+
 from dp_ops_agent.evidence.schema import (
     ReplayKafkaOffsets,
     RerunDbtModel,
@@ -59,3 +63,53 @@ def test_kafka_replay_backs_up_offsets_first_and_rolls_back_from_the_file():
         "--reset-offsets --from-file offsets-backup.csv --execute"
     )
     assert any("inactive" in w for w in rendered.warnings)
+
+
+_HOSTILE = "x $(touch pwned); 'q' #"
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        RestartFlinkJobFromCheckpoint(
+            action_type="restart_flink_job_from_checkpoint", job_id=_HOSTILE
+        ),
+        RerunDbtModel(action_type="rerun_dbt_model", model=_HOSTILE),
+        ReplayKafkaOffsets(
+            action_type="replay_kafka_offsets",
+            group=_HOSTILE,
+            topic="orders",
+            partition=0,
+            from_offset=0,
+            to_offset=10,
+        ),
+    ],
+    ids=["flink-restart", "dbt-rerun", "kafka-replay"],
+)
+def test_identifiers_are_shell_quoted_as_one_argument(action):
+    """An identifier can hold anything its backend allows (a Kafka group id
+    can contain any character), so it must reach the shell as one argument."""
+    rendered = render(action)
+
+    lines = rendered.command.splitlines()
+    if isinstance(action, ReplayKafkaOffsets):  # the only rollback that's a command
+        lines.append(rendered.rollback_step)
+    with_identifier = [line for line in lines if "touch pwned" in line]
+    assert with_identifier
+    for line in with_identifier:
+        assert _HOSTILE in shlex.split(line)
+
+
+def test_kafka_topic_partition_is_quoted_together():
+    rendered = render(
+        ReplayKafkaOffsets(
+            action_type="replay_kafka_offsets",
+            group="g",
+            topic="a topic",
+            partition=3,
+            from_offset=0,
+            to_offset=10,
+        )
+    )
+
+    assert all("a topic:3" in shlex.split(line) for line in rendered.command.splitlines())

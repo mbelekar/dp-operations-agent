@@ -8,10 +8,13 @@ Kafka's run end to end against cp-kafka 7.6.1 (backup, reset, rollback);
 Flink's and dbt's against the --help of the stack's own flink:1.18.1 image and
 dbt-core 1.12.5. Values the tool can't know (bootstrap servers, the
 checkpoint path, the job jar) stay as <placeholders> rather than guesses.
+Identifiers are shell-quoted in commands: they come from the model and the
+backends, and a Kafka group id, for one, can contain any character.
 """
 
 from __future__ import annotations
 
+import shlex
 from dataclasses import dataclass, field
 
 from dp_ops_agent.evidence.schema import (
@@ -32,7 +35,7 @@ class RenderedAction:
 def _flink_restart(action: RestartFlinkJobFromCheckpoint) -> RenderedAction:
     return RenderedAction(
         command=(
-            f"flink cancel {action.job_id}\n"
+            f"flink cancel {shlex.quote(action.job_id)}\n"
             "flink run -s <latest-completed-checkpoint-path> <job-jar>"
         ),
         rollback_step=(
@@ -50,7 +53,7 @@ def _flink_restart(action: RestartFlinkJobFromCheckpoint) -> RenderedAction:
 
 def _dbt_rerun(action: RerunDbtModel) -> RenderedAction:
     return RenderedAction(
-        command=f"dbt run --select {action.model}",
+        command=f"dbt run --select {shlex.quote(action.model)}",
         rollback_step=(
             f"A re-run has no generic undo: it rebuilds {action.model} from its current "
             "inputs. Restore the previous table from warehouse time travel or a snapshot "
@@ -66,8 +69,11 @@ def _dbt_rerun(action: RerunDbtModel) -> RenderedAction:
 
 
 def _kafka_replay(action: ReplayKafkaOffsets) -> RenderedAction:
-    base = f"kafka-consumer-groups --bootstrap-server <bootstrap-servers> --group {action.group}"
-    scope = f"--topic {action.topic}:{action.partition}"
+    base = (
+        "kafka-consumer-groups --bootstrap-server <bootstrap-servers> "
+        f"--group {shlex.quote(action.group)}"
+    )
+    scope = f"--topic {shlex.quote(f'{action.topic}:{action.partition}')}"
     return RenderedAction(
         command=(
             f"{base} {scope} --reset-offsets --to-current --dry-run --export > offsets-backup.csv\n"

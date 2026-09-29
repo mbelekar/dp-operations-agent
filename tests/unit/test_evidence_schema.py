@@ -248,6 +248,28 @@ def test_action_on_an_identifier_no_signal_covered_is_rejected(root, action, mat
         _with_proposal(root, action)
 
 
+def test_action_on_an_identifier_only_an_unknown_signal_covered_is_rejected():
+    # An unknown result names whatever it was asked about, found or not, so
+    # it doesn't count as having investigated that identifier.
+    no_data = _make_signal(
+        "rebalance_frequency",
+        scope={"group": "invented-group"},
+        severity="unknown",
+        observed={"no_data_reason": "no consumer group 'invented-group'"},
+    )
+    action = ReplayKafkaOffsets(
+        action_type="replay_kafka_offsets",
+        group="invented-group",
+        topic="orders",
+        partition=0,
+        from_offset=0,
+        to_offset=10,
+    )
+
+    with pytest.raises(ValidationError, match="invented-group"):
+        _with_proposal(_KAFKA_LAG, action, extra_signals=[no_data])
+
+
 def test_action_for_a_different_system_than_the_root_cause_is_rejected():
     # e.g. "re-run a dbt model" proposed for a Kafka root cause.
     action = RerunDbtModel(action_type="rerun_dbt_model", model="fct_orders")

@@ -33,11 +33,15 @@ The project already validates model claims about evidence, diagnosed system, and
 | --- | --- |
 | Derive the tier from the action | Prevents the model from understating blast radius |
 | Match the action system to the root-cause system | Prevents, for example, a Kafka replay for a Flink root cause |
-| Require targets to appear in collected signal scope | The agent can act only on identifiers it investigated |
+| Require targets to appear in the scope of a collected signal whose severity isn't `unknown` | The agent can act only on identifiers it investigated and found data for. An `unknown` signal's scope is just what the tool was asked about ([ADR-0009](0009-no-data-is-unknown-not-ok.md)) |
 | Limit a Kafka replay to 100,000 offsets on one partition and group | Wider replays are Tier 2 and are rejected |
 | Treat no proposal as Tier 0 | "No safe catalog action applies" remains a valid conclusion |
 
 Kafka replay partition and offset values do not appear in signal scope. Their risk is controlled by the Tier 1 replay limit instead.
+
+Command previews shell-quote every identifier. Identifiers come from the model and the backends, and some backends allow any character (a Kafka group id can contain spaces, quotes, or `$(...)`), so a preview a human pastes must pass each one as a single argument.
+
+Both rules were added after the 2026-09-29 security audit found that the model could get an invented identifier past grounding by calling a tool with it once, and so place a shell command in the preview.
 
 ## Alternatives considered
 

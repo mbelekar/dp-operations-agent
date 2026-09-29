@@ -162,3 +162,24 @@ async def test_aclose_closes_the_http_client():
     gateway = LiveKafkaGateway("localhost:1", "http://jmx:5559", "http://schema-registry:8081")
     await gateway.aclose()
     assert gateway._http.is_closed
+
+
+@pytest.mark.parametrize(
+    ("subject", "encoded"),
+    [
+        ("../../subjects", "..%2F..%2Fsubjects"),
+        ("orders-value?x=1", "orders-value%3Fx%3D1"),
+        ("..", "%2E%2E"),
+        ("orders-value", "orders-value"),
+    ],
+)
+async def test_schema_subject_stays_one_path_segment(subject, encoded):
+    paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.raw_path.decode())
+        return httpx.Response(404)
+
+    await _gateway_with(handler).schema_registry_subject(subject)
+
+    assert paths == [f"/compatibility/subjects/{encoded}/versions/latest"]

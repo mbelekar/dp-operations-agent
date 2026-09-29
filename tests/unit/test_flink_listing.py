@@ -3,6 +3,7 @@ import time
 from pathlib import Path
 
 import httpx
+import pytest
 
 from dp_ops_agent.tools.flink.fixture_gateway import FixtureFlinkGateway
 from dp_ops_agent.tools.flink.live_gateway import LiveFlinkGateway
@@ -98,3 +99,44 @@ async def test_aclose_closes_the_http_client():
     gateway = LiveFlinkGateway("http://flink:8081")
     await gateway.aclose()
     assert gateway._http.is_closed
+
+
+# (identifier, how it must reach the server): each stays one path segment.
+_HOSTILE_IDS = [
+    ("../jobmanager/logs", "..%2Fjobmanager%2Flogs"),
+    ("abc?x=1#f", "abc%3Fx%3D1%23f"),
+    ("..", "%2E%2E"),
+    ("a1b2c3", "a1b2c3"),
+]
+
+
+@pytest.mark.parametrize(("job_id", "encoded"), _HOSTILE_IDS)
+async def test_live_ids_stay_one_path_segment(job_id, encoded):
+    paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.raw_path.decode())
+        return httpx.Response(404)
+
+    gateway = LiveFlinkGateway("http://flink:8081")
+    gateway._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    calls = [
+        gateway.list_vertices(job_id),
+        gateway.checkpoint_history(job_id),
+        gateway.backpressure(job_id, job_id),
+        gateway.watermark_lag(job_id, job_id),
+        gateway.task_manager_disk_metrics(job_id, job_id),
+        gateway.job_exceptions(job_id, 5),
+    ]
+    for call in calls:
+        with pytest.raises(httpx.HTTPStatusError):
+            await call
+
+    assert paths == [
+        f"/jobs/{encoded}",
+        f"/jobs/{encoded}/checkpoints",
+        f"/jobs/{encoded}/vertices/{encoded}/backpressure",
+        f"/jobs/{encoded}/vertices/{encoded}/metrics",
+        f"/jobs/{encoded}/vertices/{encoded}/metrics",
+        f"/jobs/{encoded}/exceptions",
+    ]

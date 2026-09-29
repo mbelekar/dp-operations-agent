@@ -39,6 +39,7 @@ from dp_ops_agent.tools.flink.gateway import (
     NamedId,
     SubtaskBackpressure,
 )
+from dp_ops_agent.tools.url_path import segment
 
 
 class LiveFlinkGateway:
@@ -55,12 +56,12 @@ class LiveFlinkGateway:
         return [NamedId(id=j["jid"], name=j["name"]) for j in resp.json().get("jobs", [])]
 
     async def list_vertices(self, job_id: str) -> list[NamedId]:
-        resp = await self._http.get(f"{self._base_url}/jobs/{job_id}")
+        resp = await self._http.get(f"{self._base_url}/jobs/{segment(job_id)}")
         resp.raise_for_status()
         return [NamedId(id=v["id"], name=v["name"]) for v in resp.json().get("vertices", [])]
 
     async def checkpoint_history(self, job_id: str) -> CheckpointHistoryView:
-        resp = await self._http.get(f"{self._base_url}/jobs/{job_id}/checkpoints")
+        resp = await self._http.get(f"{self._base_url}/jobs/{segment(job_id)}/checkpoints")
         resp.raise_for_status()
         data = resp.json()
         return CheckpointHistoryView(
@@ -78,7 +79,7 @@ class LiveFlinkGateway:
 
     async def backpressure(self, job_id: str, vertex_id: str) -> BackpressureView:
         resp = await self._http.get(
-            f"{self._base_url}/jobs/{job_id}/vertices/{vertex_id}/backpressure"
+            f"{self._base_url}/jobs/{segment(job_id)}/vertices/{segment(vertex_id)}/backpressure"
         )
         resp.raise_for_status()
         data = resp.json()
@@ -93,7 +94,9 @@ class LiveFlinkGateway:
         )
 
     async def _available_metric_ids(self, job_id: str, vertex_id: str) -> list[str]:
-        resp = await self._http.get(f"{self._base_url}/jobs/{job_id}/vertices/{vertex_id}/metrics")
+        resp = await self._http.get(
+            f"{self._base_url}/jobs/{segment(job_id)}/vertices/{segment(vertex_id)}/metrics"
+        )
         resp.raise_for_status()
         return [m["id"] for m in resp.json()]
 
@@ -106,7 +109,7 @@ class LiveFlinkGateway:
         if not metric_ids:
             return {}
         resp = await self._http.get(
-            f"{self._base_url}/jobs/{job_id}/vertices/{vertex_id}/metrics",
+            f"{self._base_url}/jobs/{segment(job_id)}/vertices/{segment(vertex_id)}/metrics",
             params={"get": ",".join(metric_ids)},
         )
         resp.raise_for_status()
@@ -131,14 +134,14 @@ class LiveFlinkGateway:
         if not metric_ids:
             return {}
         resp = await self._http.get(
-            f"{self._base_url}/jobs/{job_id}/vertices/{vertex_id}/metrics",
+            f"{self._base_url}/jobs/{segment(job_id)}/vertices/{segment(vertex_id)}/metrics",
             params={"get": ",".join(metric_ids)},
         )
         resp.raise_for_status()
         return {entry["id"]: float(entry["value"]) for entry in resp.json()}
 
     async def job_exceptions(self, job_id: str, window_minutes: int) -> list[dict[str, Any]]:
-        resp = await self._http.get(f"{self._base_url}/jobs/{job_id}/exceptions")
+        resp = await self._http.get(f"{self._base_url}/jobs/{segment(job_id)}/exceptions")
         resp.raise_for_status()
         data = resp.json()
         now_ms = time.time() * 1000

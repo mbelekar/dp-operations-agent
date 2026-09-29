@@ -30,6 +30,7 @@ from confluent_kafka import Consumer, TopicPartition
 from confluent_kafka.admin import AdminClient
 
 from dp_ops_agent.tools.kafka.gateway import ClusterMetadataView, MetricSample, PartitionMetadata
+from dp_ops_agent.tools.url_path import segment
 
 _PROMETHEUS_LINE_RE = re.compile(r"^(?P<name>\w+)\{(?P<labels>[^}]*)\}\s+(?P<value>[-\d.eE+]+)\s*$")
 
@@ -231,7 +232,8 @@ class LiveKafkaGateway:
         # compatibility signal available" rather than crashing the session.
         try:
             resp = await self._http.get(
-                f"{self._schema_registry_url}/compatibility/subjects/{subject}/versions/latest"
+                f"{self._schema_registry_url}/compatibility/subjects/{segment(subject)}"
+                "/versions/latest"
             )
             resp.raise_for_status()
         except httpx.HTTPStatusError:

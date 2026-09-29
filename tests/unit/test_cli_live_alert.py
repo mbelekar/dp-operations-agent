@@ -1,3 +1,4 @@
+import json
 from datetime import UTC
 from pathlib import Path
 from types import SimpleNamespace
@@ -86,7 +87,7 @@ def _fixture_args(tmp_path):
     ]
 
 
-def _stub_run(monkeypatch, proposal_input):
+def _stub_run(monkeypatch, proposal_input, hypothesis="checkpoints failing", interpretation="x"):
     from datetime import datetime
 
     from dp_ops_agent import cli
@@ -101,10 +102,12 @@ def _stub_run(monkeypatch, proposal_input):
     diagnosis = Diagnosis(
         session_id="s",
         system="flink",
-        root_cause_hypothesis="checkpoints failing",
+        root_cause_hypothesis=hypothesis,
         root_cause_signal_id=signal.signal_id,
         confidence="high",
-        evidence_chain=[EvidenceChainEntry(step=1, signal_id=signal.signal_id, interpretation="x")],
+        evidence_chain=[
+            EvidenceChainEntry(step=1, signal_id=signal.signal_id, interpretation=interpretation)
+        ],
         signals=[signal],
         tier=proposal.tier if proposal else 0,
         proposal=proposal,
@@ -144,6 +147,42 @@ def test_diagnose_prints_the_proposal_for_review(tmp_path, monkeypatch):
     assert "Rollback:" in out and "checkpoint is not modified" in out
     assert "Warnings:" in out and "<latest-completed-checkpoint-path>" in out
     assert "Expected outcome: checkpoints complete again" in out
+
+
+# Erase line, carriage return, one-byte CSI, right-to-left override, and a
+# fake evidence-chain line: each would change what a reviewer sees.
+_HOSTILE_TEXT = "a\x1b[2Kb\rc\x9bd\u202ee\n  2. [fake] f"
+
+
+def test_diagnose_shows_control_characters_instead_of_emitting_them(tmp_path, monkeypatch):
+    from dp_ops_agent.tools.diagnosis_output.tools import _ProposalInput
+
+    _stub_run(
+        monkeypatch,
+        _ProposalInput(
+            action={
+                "action_type": "restart_flink_job_from_checkpoint",
+                "job_id": "orders-processing-job",
+            },
+            expected_outcome=_HOSTILE_TEXT,
+        ),
+        hypothesis=_HOSTILE_TEXT,
+        interpretation=_HOSTILE_TEXT,
+    )
+
+    result = CliRunner().invoke(app, _fixture_args(tmp_path))
+
+    assert result.exit_code == 0, result.output
+    out = result.output
+    for raw in ("\x1b", "\r", "\x9b", "\u202e", "\n  2. [fake]"):
+        assert raw not in out
+    shown = "a\\u001b[2Kb\\u000dc\\u009bd\\u202ee\\u000a  2. [fake] f"
+    assert f"] {shown}" in out  # the evidence-chain line
+    assert f"Expected outcome: {shown}" in out
+    # The escapes are valid JSON, so the dump still reads back exactly.
+    dumped = json.loads(out.split("\nEvidence chain:")[0])
+    assert dumped["root_cause_hypothesis"] == _HOSTILE_TEXT
+    assert dumped["evidence_chain"][0]["interpretation"] == _HOSTILE_TEXT
 
 
 def test_diagnose_says_when_no_action_is_proposed(tmp_path, monkeypatch):

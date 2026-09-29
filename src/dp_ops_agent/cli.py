@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import unicodedata
 from collections.abc import Coroutine
 from contextlib import AsyncExitStack
 from datetime import UTC, datetime, timedelta
@@ -34,6 +35,24 @@ from dp_ops_agent.tools.lineage.live_gateway import LiveLineageGateway
 load_dotenv()
 
 app = typer.Typer(add_completion=False)
+
+
+def _visible(text: str) -> str:
+    """Shows control and format characters (ESC, CR, a one-byte CSI, bidi
+    overrides, ...) as \\uXXXX escapes instead of letting the terminal act
+    on them. Model-written text and backend identifiers reach the reviewer's
+    screen, so they mustn't be able to erase, hide, or reorder what it shows.
+    The escapes are valid JSON, so this is safe on a JSON dump too."""
+    out = []
+    for ch in text:
+        if unicodedata.category(ch) not in ("Cc", "Cf"):
+            out.append(ch)
+        elif ord(ch) <= 0xFFFF:
+            out.append(f"\\u{ord(ch):04x}")
+        else:  # above the BMP, as a JSON-style surrogate pair
+            high, low = divmod(ord(ch) - 0x10000, 0x400)
+            out.append(f"\\u{0xD800 + high:04x}\\u{0xDC00 + low:04x}")
+    return "".join(out)
 
 
 @app.callback()
@@ -205,10 +224,12 @@ def diagnose(
         raise typer.Exit(code=1) from exc
 
     diagnosis = result.diagnosis
-    typer.echo(diagnosis.model_dump_json(indent=2))
+    typer.echo(
+        "\n".join(_visible(line) for line in diagnosis.model_dump_json(indent=2).split("\n"))
+    )
     typer.echo("\nEvidence chain:")
     for entry in diagnosis.evidence_chain:
-        typer.echo(f"  {entry.step}. [{entry.signal_id}] {entry.interpretation}")
+        typer.echo(f"  {entry.step}. [{entry.signal_id}] {_visible(entry.interpretation)}")
     _echo_proposal(diagnosis.proposal)
     typer.echo(f"\nAudit log: {result.audit_log_path}")
 
@@ -263,14 +284,16 @@ def _echo_proposal(proposal: Proposal | None) -> None:
     typer.echo(f"\nProposal (Tier {proposal.tier}, for human review; nothing was executed):")
     action_type = proposal.action.action_type if proposal.action is not None else "none"
     typer.echo(f"  Action: {action_type}")
-    typer.echo(f"  Expected outcome: {proposal.expected_outcome}")
+    typer.echo(f"  Expected outcome: {_visible(str(proposal.expected_outcome))}")
     typer.echo("  Command:")
-    for line in (proposal.command or "").splitlines():
-        typer.echo(f"    {line}")
-    typer.echo(f"  Rollback: {proposal.rollback_step}")
+    # split("\n"), not splitlines(): that also breaks on \r and other
+    # separators, which would show as extra lines instead of as escapes.
+    for line in proposal.command.split("\n") if proposal.command else []:
+        typer.echo(f"    {_visible(line)}")
+    typer.echo(f"  Rollback: {_visible(str(proposal.rollback_step))}")
     typer.echo("  Warnings:")
     for warning in proposal.warnings:
-        typer.echo(f"    - {warning}")
+        typer.echo(f"    - {_visible(warning)}")
 
 
 _LOG_DIR_OPTION = typer.Option(

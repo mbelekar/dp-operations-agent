@@ -64,6 +64,23 @@ def test_approve_shows_the_proposal_and_records_the_approval(tmp_path):
     assert (decision.expires_at - decision.decided_at).total_seconds() == 30 * 60
 
 
+def test_proposal_shows_control_characters_in_identifiers_instead_of_emitting_them(tmp_path):
+    # ESC[8m conceals the text after it on most terminals.
+    hostile = _build_proposal(
+        _ProposalInput(action={**_REPLAY, "group": "billing\x1b[8msvc"}, expected_outcome="x")
+    )
+    proposal = _write(tmp_path, hostile)
+
+    result = _invoke(
+        "approve", proposal.proposal_id, "--reviewer", "alice", "--log-dir", str(tmp_path)
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "\x1b" not in result.output
+    assert "--group 'billing\\u001b[8msvc'" in result.output  # command and rollback
+    assert "Stop every consumer in group billing\\u001b[8msvc first" in result.output
+
+
 def test_reject_records_the_reason(tmp_path):
     proposal = _write(tmp_path)
 

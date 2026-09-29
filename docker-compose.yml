@@ -1,5 +1,5 @@
 x-kafka-common: &kafka-common
-  image: confluentinc/cp-kafka:7.6.1
+  image: confluentinc/cp-kafka:7.6.1@sha256:620734d9fc0bb1f9886932e5baf33806074469f40e3fe246a3fdbb59309535fa
   environment: &kafka-common-env
     KAFKA_PROCESS_ROLES: "broker,controller"
     KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
@@ -92,7 +92,7 @@ services:
       start_period: 30s
 
   schema-registry:
-    image: confluentinc/cp-schema-registry:7.6.1
+    image: confluentinc/cp-schema-registry:7.6.1@sha256:4813089d589a92d0c1b2e559caf557e4ce79b4ffa26fcd6c95372afba70149fc
     depends_on:
       kafka-1:
         condition: service_healthy
@@ -108,7 +108,7 @@ services:
       - "127.0.0.1:8081:8081"
 
   kafka-init:
-    image: confluentinc/cp-kafka:7.6.1
+    image: confluentinc/cp-kafka:7.6.1@sha256:620734d9fc0bb1f9886932e5baf33806074469f40e3fe246a3fdbb59309535fa
     depends_on:
       kafka-1:
         condition: service_healthy
@@ -126,7 +126,7 @@ services:
       kafka-topics --bootstrap-server kafka-1:9092 --describe --topic orders-sink"
 
   kafka-seed:
-    image: confluentinc/cp-kafka:7.6.1
+    image: confluentinc/cp-kafka:7.6.1@sha256:620734d9fc0bb1f9886932e5baf33806074469f40e3fe246a3fdbb59309535fa
     depends_on:
       kafka-init:
         condition: service_completed_successfully
@@ -181,7 +181,7 @@ services:
       - "127.0.0.1:5559:5559"
 
   flink-jobmanager:
-    image: flink:1.18.1-scala_2.12-java11
+    image: flink:1.18.1-scala_2.12-java11@sha256:f0e9ffd07f3d43291dfaf7e0609eb2871462193275d452affbe5fac091017ae3
     command: jobmanager
     environment:
       FLINK_PROPERTIES: |
@@ -191,7 +191,7 @@ services:
       - "127.0.0.1:8082:8081"
 
   flink-taskmanager:
-    image: flink:1.18.1-scala_2.12-java11
+    image: flink:1.18.1-scala_2.12-java11@sha256:f0e9ffd07f3d43291dfaf7e0609eb2871462193275d452affbe5fac091017ae3
     command: taskmanager
     depends_on:
       - flink-jobmanager
@@ -219,7 +219,7 @@ services:
   # Marquez's dev config hardcodes db name, user and password all as
   # "marquez", only host/port are overridable, so these must match exactly.
   marquez-db:
-    image: postgres:14-alpine
+    image: postgres:14-alpine@sha256:4ea9e5ed06591da7ea23eb65465e8d3187fe79f4d5ec3ae976d29a33b013e77a
     environment:
       POSTGRES_USER: marquez
       POSTGRES_PASSWORD: marquez
@@ -236,7 +236,7 @@ services:
   # an OpenSearch service this stack doesn't run. Host port 5002, not 5000,
   # since macOS's AirPlay Receiver already listens on 5000.
   marquez:
-    image: marquezproject/marquez:0.51.1
+    image: marquezproject/marquez:0.51.1@sha256:0721c976cff17d8b14f7949d85d6dac9c7ea37cb9fe857caa19833730fcb1a50
     platform: linux/amd64
     depends_on:
       marquez-db:
@@ -260,7 +260,7 @@ services:
   # / job:flink:{job_name}, the convention in tools/lineage/gateway.py. Must
   # be kept in step with the Flink job's actual sources/sinks by hand.
   marquez-seed:
-    image: curlimages/curl:8.22.0
+    image: curlimages/curl:8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777
     depends_on:
       marquez:
         condition: service_healthy

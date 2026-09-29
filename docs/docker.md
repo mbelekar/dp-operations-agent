@@ -123,6 +123,16 @@ Only `kafka-1` exposes its main host port directly. All three brokers also adver
 
 Every published port is bound to `127.0.0.1`, so the stack is reachable only from this machine. None of its services require authentication, and Flink's REST API accepts and runs uploaded jars.
 
+### Updating pinned images
+
+Every image, in the compose file and the Dockerfiles, is pinned as `image:tag@sha256:<digest>`: Docker pulls the digest, and the tag is there for readers. Nothing updates the pins automatically. To take a new build of a tag, get its current digest and replace the old one:
+
+```bash
+docker buildx imagetools inspect python:3.14-slim | awk '/^Digest:/{print $2}'
+```
+
+The JMX exporter jar is pinned the same way, by `JMX_EXPORTER_SHA256` in `docker/jmx-exporter/Dockerfile`. Its comment says how that hash was verified.
+
 ## What happens when a backend fails
 
 For connection failures, timeouts, missing resources, and HTTP errors, the agent retries once when appropriate. If the retry also fails:

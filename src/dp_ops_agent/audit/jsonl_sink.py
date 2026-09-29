@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -12,11 +13,15 @@ class JsonlAuditSink:
     Phase 4 will likely swap this for a SQLite/Postgres-backed sink so
     approval-record lookups can use indexed "exact action + not expired"
     queries. Any replacement need only implement the AuditSink protocol.
+
+    Readable by the owner only: signals carry raw backend text (exception
+    messages, dbt errors). Only a directory or file this creates gets those
+    permissions; existing ones keep theirs.
     """
 
     def __init__(self, log_dir: str | Path, session_id: str) -> None:
         self._log_dir = Path(log_dir)
-        self._log_dir.mkdir(parents=True, exist_ok=True)
+        self._log_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         self._path = self._log_dir / f"{session_id}.jsonl"
 
     @property
@@ -24,7 +29,8 @@ class JsonlAuditSink:
         return self._path
 
     def append(self, event: AuditEvent) -> None:
-        with self._path.open("a", encoding="utf-8") as f:
+        fd = os.open(self._path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        with open(fd, "a", encoding="utf-8") as f:
             f.write(event.model_dump_json())
             f.write("\n")
 

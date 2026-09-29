@@ -1,3 +1,4 @@
+import stat
 from datetime import UTC, datetime
 
 from dp_ops_agent.audit.jsonl_sink import JsonlAuditSink
@@ -32,6 +33,16 @@ def test_append_does_not_truncate_existing_entries(tmp_path):
     sink2 = JsonlAuditSink(tmp_path, "s1")
     sink2.append(_event())
     assert len(sink.path.read_text().strip().splitlines()) == 2
+
+
+def test_log_dir_and_file_are_readable_by_the_owner_only(tmp_path):
+    """Signals carry raw backend text (exceptions, error messages), so other
+    local users mustn't be able to read the log."""
+    sink = JsonlAuditSink(tmp_path / "audit", "s1")
+    sink.append(_event())
+
+    assert stat.S_IMODE((tmp_path / "audit").stat().st_mode) == 0o700
+    assert stat.S_IMODE(sink.path.stat().st_mode) == 0o600
 
 
 def test_query_filters_by_event_type_and_session(tmp_path):

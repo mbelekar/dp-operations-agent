@@ -204,6 +204,18 @@ The two records serve different purposes:
 | Audit log | Reviewable record of collected signals, diagnoses, and session usage |
 | LangSmith trace | Developer view of tool calls, latency, and token usage |
 
+## Data handling
+
+Tool results include raw backend text, such as Flink exception stack traces, dbt error messages, and Schema Registry responses, along with topic, group, job, and model names.
+
+| Destination | What it receives | When |
+| --- | --- | --- |
+| Anthropic | The alert text and every tool result | Every run |
+| LangSmith | The same | Only when tracing is on |
+| `logs/audit/` | The same, stored locally and readable by the owner only | Every run |
+
+Log directories and files created before owner-only permissions were added keep their old permissions. Run `chmod -R go= logs/` to tighten them.
+
 ## Optional live infrastructure
 
 The fixture path is the fastest way to run the project. An opt-in Docker environment is also available to exercise the `Live*Gateway` implementations against:

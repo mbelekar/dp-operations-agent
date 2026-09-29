@@ -58,8 +58,22 @@ Approval records are still valuable. They complete the audit trail and provide e
 
 - Anyone able to edit `logs/audit/` can forge an approval.
 - The action digest detects a changed action, not a forged reviewer decision.
-- A real executor would require authenticated reviewers and an access-controlled or signed approval store.
-
 If execution is added later, it should be a human-run command with independent approval and safety checks, not an agent tool.
+
+## Preconditions for execution
+
+Any executor must first have:
+
+1. **Authenticated reviewers:** a reviewer's identity comes from something other than a CLI flag they type.
+2. **An approval store outside the operator's reach:** the executor can trust approval records that the person running the agent or the executor cannot write. For example, an approval service, or records signed with a key held outside that person's access.
+
+Two protections for the local audit log were considered on 2026-09-29, after the security audit, and neither meets requirement 2:
+
+| Option | Why it falls short |
+| --- | --- |
+| Hash-chain the audit events | Anyone who can edit the file can recompute the chain. It helps only if the head hash is stored somewhere they can't write, which is requirement 2 again. |
+| HMAC-sign approval events with a key from the environment | The operator who runs the agent holds the key, so they can sign forged records. |
+
+Neither is built now: there is no executor for them to protect.
 
 Related decisions: [ADR-0004](0004-human-approved-remediation.md) and [ADR-0010](0010-proposals-model-chosen-code-checked.md).

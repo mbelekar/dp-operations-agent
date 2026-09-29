@@ -45,6 +45,16 @@ Fixture gateways own no resources, so `aclose()` is not part of the gateway prot
 
 An `asyncio.Lock` prevents concurrent cache misses from triggering duplicate JMX scrapes. All callers share the first in-flight result.
 
+### Audit log writes
+
+`AuditSink.append` stays synchronous, and tools call it on the event loop. This is a deliberate exception to keeping file I/O off the loop:
+
+- Measured on 2026-09-29, an append takes about 0.1 ms (2 ms at p99). Every signal payload is under 1 KB.
+- Each event is written as one complete line, in the order the calls happen. Appending from worker threads would need a lock so that concurrent tool calls couldn't interleave two lines.
+- Moving appends off the loop would make `AuditSink` asynchronous and change every caller to save about 0.1 ms per event.
+
+Revisit this if the audit sink moves to a database, as the `JsonlAuditSink` docstring anticipates: those writes would be network I/O.
+
 ### Errors
 
 Gateways continue to raise the same `httpx.HTTPError`, `KafkaException`, and `TimeoutError` types. Existing retry and tool-error middleware therefore remain unchanged.

@@ -36,8 +36,8 @@ services:
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-1:9092,PLAINTEXT_HOST://localhost:29092"
       KAFKA_JMX_HOSTNAME: "kafka-1"
     ports:
-      - "9092:9092"
-      - "29092:29092"
+      - "127.0.0.1:9092:9092"
+      - "127.0.0.1:29092:29092"
     init: true
     # timeout(1) + init: Docker doesn't kill a healthcheck that overruns its
     # timeout, so without these each slow check left a JVM behind, which
@@ -58,7 +58,7 @@ services:
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-2:9092,PLAINTEXT_HOST://localhost:29093"
       KAFKA_JMX_HOSTNAME: "kafka-2"
     ports:
-      - "29093:29092"
+      - "127.0.0.1:29093:29092"
     init: true
     # timeout(1) + init: Docker doesn't kill a healthcheck that overruns its
     # timeout, so without these each slow check left a JVM behind, which
@@ -79,7 +79,7 @@ services:
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-3:9092,PLAINTEXT_HOST://localhost:29094"
       KAFKA_JMX_HOSTNAME: "kafka-3"
     ports:
-      - "29094:29092"
+      - "127.0.0.1:29094:29092"
     init: true
     # timeout(1) + init: Docker doesn't kill a healthcheck that overruns its
     # timeout, so without these each slow check left a JVM behind, which
@@ -105,7 +105,7 @@ services:
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "PLAINTEXT://kafka-1:9092,PLAINTEXT://kafka-2:9092,PLAINTEXT://kafka-3:9092"
       SCHEMA_REGISTRY_LISTENERS: "http://0.0.0.0:8081"
     ports:
-      - "8081:8081"
+      - "127.0.0.1:8081:8081"
 
   kafka-init:
     image: confluentinc/cp-kafka:7.6.1
@@ -178,7 +178,7 @@ services:
       UPSTREAM_METRICS_URLS: >-
         http://jmx-exporter-1:5556/metrics,http://jmx-exporter-2:5556/metrics,http://jmx-exporter-3:5556/metrics
     ports:
-      - "5559:5559"
+      - "127.0.0.1:5559:5559"
 
   flink-jobmanager:
     image: flink:1.18.1-scala_2.12-java11
@@ -188,7 +188,7 @@ services:
         jobmanager.rpc.address: flink-jobmanager
         state.checkpoints.dir: file:///tmp/flink-checkpoints
     ports:
-      - "8082:8081"
+      - "127.0.0.1:8082:8081"
 
   flink-taskmanager:
     image: flink:1.18.1-scala_2.12-java11
@@ -246,7 +246,7 @@ services:
       SEARCH_ENABLED: "false"
       JAVA_OPTS: "-Xmx256m"
     ports:
-      - "5002:5000"
+      - "127.0.0.1:5002:5000"
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:5001/healthcheck"]
       interval: 10s

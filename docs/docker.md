@@ -119,6 +119,10 @@ The Marquez image runs through amd64 emulation. It may take about 50 seconds to 
 
 Only `kafka-1` exposes its main host port directly. All three brokers also advertise host listeners on ports `29092`, `29093`, and `29094`, allowing host clients to contact whichever broker leads a partition.
 
+### Host ports
+
+Every published port is bound to `127.0.0.1`, so the stack is reachable only from this machine. None of its services require authentication, and Flink's REST API accepts and runs uploaded jars.
+
 ## What happens when a backend fails
 
 For connection failures, timeouts, missing resources, and HTTP errors, the agent retries once when appropriate. If the retry also fails:
